@@ -105,3 +105,128 @@ export function likelyPitches(spectrum: Float64Array, sampleRate: number): numbe
   if (second && second.score >= best.score * 0.8) result.push(second.midi)
   return result
 }
+
+/**
+ * Compression: partials count by their ratio, not their size, down to this
+ * far below the strongest partial around (as a factor). Measuring against
+ * the strongest partial makes the result the same for a quiet and a loud
+ * input.
+ */
+const FLUX_DEPTH = 30
+/** A partial weaker than this is treated as silence. */
+const FLUX_QUIETEST = 1e-3
+/**
+ * Windows the meter looks ahead before it answers. The strongest partial is
+ * taken from the note that is starting as well as from what came before;
+ * otherwise the faint touch of the pick on the string, just before a note
+ * played out of silence, would count for more than the note.
+ */
+export const FLUX_AHEAD = 3
+/** How fast the memory of the strongest partial fades, per window. */
+const FLUX_FADE = 0.995
+
+/**
+ * Measures how much new sound each short window adds: the growth of every
+ * partial over the same partial a moment earlier, summed over the range of
+ * a guitar ("spectral flux"). A picked note adds partials of its own, so it
+ * stands out even while louder strings ring on, where the overall level and
+ * brightness hardly move. A partial that only drifts to the neighbouring
+ * frequency, as in vibrato, is not counted as new.
+ *
+ * A long window tells low notes apart and so misses fewer attacks; a short
+ * one says more exactly when an attack happened.
+ */
+export class FluxMeter {
+  /** Window length in samples. */
+  readonly size: number
+  private readonly lag: number
+  private readonly low: number
+  private readonly high: number
+  private readonly history: { partials: Float64Array; loudest: number }[] = []
+  /** The strongest partial of the windows already answered for, fading with time. */
+  private remembered = 0
+  private readonly re: Float64Array
+  private readonly im: Float64Array
+  private readonly hann: Float64Array
+  private readonly cos: Float64Array
+  private readonly sin: Float64Array
+  private readonly reversed: Uint16Array
+
+  /**
+   * `size` must be a power of two; `lag` is how many windows back the
+   * comparison reaches.
+   */
+  constructor(sampleRate: number, size: number, lag: number) {
+    this.size = size
+    this.lag = lag
+    const binHz = sampleRate / size
+    this.low = Math.max(1, Math.ceil(70 / binHz))
+    this.high = Math.min(size / 2 - 2, Math.floor(6000 / binHz))
+    this.re = new Float64Array(size)
+    this.im = new Float64Array(size)
+    this.hann = new Float64Array(size)
+    this.cos = new Float64Array(size / 2)
+    this.sin = new Float64Array(size / 2)
+    this.reversed = new Uint16Array(size)
+    for (let i = 0; i < size; i++) this.hann[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (size - 1))
+    for (let i = 0; i < size / 2; i++) {
+      this.cos[i] = Math.cos((2 * Math.PI * i) / size)
+      this.sin[i] = Math.sin((2 * Math.PI * i) / size)
+    }
+    for (let i = 0, bits = Math.log2(size); i < size; i++) {
+      let r = 0
+      for (let b = 0; b < bits; b++) r |= ((i >> b) & 1) << (bits - 1 - b)
+      this.reversed[i] = r
+    }
+  }
+
+  /**
+   * Takes the next window of `size` samples and returns the flux of the
+   * window given FLUX_AHEAD calls earlier (0 until there is one).
+   */
+  next(window: Float32Array): number {
+    const { re, im, low, high, size, cos, sin, reversed, hann } = this
+    im.fill(0)
+    for (let i = 0; i < size; i++) re[reversed[i]] = window[i] * hann[i]
+    for (let span = 2; span <= size; span <<= 1) {
+      const half = span >> 1
+      const step = size / span
+      for (let start = 0; start < size; start += span) {
+        for (let j = 0, t = 0; j < half; j++, t += step) {
+          const a = start + j
+          const b = a + half
+          const xr = re[b] * cos[t] + im[b] * sin[t]
+          const xi = im[b] * cos[t] - re[b] * sin[t]
+          re[b] = re[a] - xr
+          im[b] = im[a] - xi
+          re[a] += xr
+          im[a] += xi
+        }
+      }
+    }
+    const partials = new Float64Array(high + 2)
+    let loudest = 0
+    for (let k = low - 1; k <= high + 1; k++) {
+      partials[k] = (Math.hypot(re[k], im[k]) * 2) / size
+      if (partials[k] > loudest) loudest = partials[k]
+    }
+    const { history, lag } = this
+    history.push({ partials, loudest })
+    // Oldest first: the window to compare with, then `lag` later the one
+    // being answered for, then the ones ahead of it.
+    if (history.length <= lag + FLUX_AHEAD) return 0
+    const before = history[0].partials
+    const now = history[lag].partials
+    let reference = Math.max(FLUX_QUIETEST, this.remembered)
+    for (const window of history) if (window.loudest > reference) reference = window.loudest
+    const gain = FLUX_DEPTH / reference
+    let flux = 0
+    for (let k = low; k <= high; k++) {
+      const was = Math.max(before[k - 1], before[k], before[k + 1])
+      if (now[k] > was) flux += Math.log((1 + gain * now[k]) / (1 + gain * was))
+    }
+    this.remembered = Math.max(this.remembered * FLUX_FADE, history[0].loudest)
+    history.shift()
+    return flux
+  }
+}

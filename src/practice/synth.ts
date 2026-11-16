@@ -27,11 +27,19 @@ export function synthesize(
   notes: SynthNote[],
   sampleRate: number,
   totalSec: number,
-  options: { noiseFloor?: number } = {},
+  options: {
+    noiseFloor?: number
+    /** Loudness of the pick's click; 0 gives the soft attack of a plugged-in guitar. */
+    pickNoise?: number
+    /** How long a picked note takes to reach full level, in seconds. */
+    attackSec?: number
+  } = {},
 ): Float32Array {
   const out = new Float32Array(Math.ceil(totalSec * sampleRate))
   const random = noise(12345)
   let phaseCarry = 0
+  const pickNoise = options.pickNoise ?? 0.25
+  const attackSec = options.attackSec ?? 0.002
 
   notes.forEach((note, index) => {
     const start = Math.round(note.timeSec * sampleRate)
@@ -53,9 +61,9 @@ export function synthesize(
         sample += (Math.sin(2 * Math.PI * hz * k * t + phase * k) / k) * Math.exp(-t * (1.2 + k * 0.9))
       }
       const fadeOut = Math.min(1, (end - i) / (0.01 * sampleRate))
-      const attack = note.legato ? 1 : Math.min(1, t / 0.002)
+      const attack = note.legato ? 1 : Math.min(1, t / attackSec)
       out[i] += 0.3 * sample * attack * fadeOut
-      if (!note.legato && t < 0.006) out[i] += 0.25 * random() * (1 - t / 0.006)
+      if (!note.legato && t < 0.006) out[i] += pickNoise * random() * (1 - t / 0.006)
     }
     phaseCarry = phase + 2 * Math.PI * hz * ((end - start) / sampleRate)
   })

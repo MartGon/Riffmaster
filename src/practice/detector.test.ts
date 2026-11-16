@@ -4,8 +4,15 @@ import { type SynthNote, synthesize } from './synth'
 
 const RATE = 48000
 
-function detect(notes: SynthNote[], totalSec: number, noiseFloor = 0.001, rate = RATE): DetectedNote[] {
-  const audio = synthesize(notes, rate, totalSec, { noiseFloor })
+function detect(
+  notes: SynthNote[],
+  totalSec: number,
+  noiseFloor = 0.001,
+  rate = RATE,
+  options: { pickNoise?: number; attackSec?: number; gain?: number } = {},
+): DetectedNote[] {
+  const audio = synthesize(notes, rate, totalSec, { noiseFloor, ...options })
+  if (options.gain !== undefined) for (let i = 0; i < audio.length; i++) audio[i] *= options.gain
   const found: DetectedNote[] = []
   const detector = new NoteDetector(rate, (note) => found.push(note))
   // Feed in uneven blocks, as a browser would.
@@ -44,6 +51,20 @@ describe('NoteDetector', () => {
     const pitches = [45, 52, 57, 60, 64, 60, 57, 52]
     const notes = pitches.map((midi, i) => ({ timeSec: 0.3 + i * 0.3, midi }))
     expectNotes(detect(notes, 3.5), notes)
+  })
+
+  it('hears softly picked notes over ringing strings, as from a plugged-in guitar', () => {
+    // No pick click and a slow attack: the level and brightness barely move
+    // when a note joins the ones still ringing. Two bars of a picked chord.
+    const pitches = [45, 52, 59, 60, 41, 48, 55, 57]
+    const notes = pitches.map((midi, i) => ({ timeSec: 0.3 + i * 0.31, midi }))
+    expectNotes(detect(notes, 3.5, 0.001, RATE, { pickNoise: 0, attackSec: 0.008 }), notes, 0.03)
+  })
+
+  it('hears the same at a low input level', () => {
+    const pitches = [45, 52, 57, 60, 64, 60, 57, 52]
+    const notes = pitches.map((midi, i) => ({ timeSec: 0.3 + i * 0.3, midi }))
+    expectNotes(detect(notes, 3.5, 0.0001, RATE, { pickNoise: 0, attackSec: 0.008, gain: 0.05 }), notes, 0.03)
   })
 
   it('hears hammer-ons and pull-offs as new notes', () => {
