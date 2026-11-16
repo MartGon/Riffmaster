@@ -515,7 +515,7 @@ export function usePractice(
         matched: usedPlayed.has(index),
       })),
     })
-    if (import.meta.env.DEV) {
+    if (process.env.NODE_ENV === 'development') {
       // Lets automated checks see what was heard and how it lined up.
       ;(window as unknown as { __riffmasterTake?: unknown }).__riffmasterTake = {
         played,
@@ -1027,7 +1027,7 @@ export function usePractice(
   // In development, expose what the tab expects so automated checks can
   // synthesize a matching performance.
   useEffect(() => {
-    if (!import.meta.env.DEV || !api) return
+    if (process.env.NODE_ENV !== 'development' || !api) return
     const debug = {
       /** Notes a take would expect: the selection, or from the playback position to the end. */
       expected: (trackIndex: number, speed = 1) =>

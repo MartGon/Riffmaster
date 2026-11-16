@@ -69,7 +69,7 @@ and trust the certificate. Then open `https://<computer's address>:5180`.
 | Command | What it does |
 |---|---|
 | `npm run dev` | Development server |
-| `npm run build` | Type check and production build into `dist/` |
+| `npm run build` | Type check and production build into `out/` (plain static files) |
 | `npm run preview` | Serves the built app |
 | `npm test` | Unit tests (Vitest) |
 | `npm run lint` | Lint (oxlint) |
@@ -84,8 +84,8 @@ are run by hand.
 
 - [alphaTab](https://www.alphatab.net/) (MPL-2.0) for rendering, playback and reading
   Guitar Pro files
-- [React](https://react.dev/), [Vite](https://vite.dev/) and
-  [vite-plugin-pwa](https://vite-pwa-org.netlify.app/)
+- [React](https://react.dev/) and [Next.js](https://nextjs.org/), built as static files;
+  [Workbox](https://developer.chrome.com/docs/workbox) for offline use
 - [pitchy](https://github.com/ianprime0509/pitchy) for pitch detection
 - [idb](https://github.com/jakearchibald/idb) for the library storage
 - [GeneralUser GS](https://github.com/mrbumpy409/GeneralUser-GS) by S. Christian Collins,

@@ -7,9 +7,8 @@ let started = false
  * Only the built app has anything to store.
  */
 export function startOfflineStore(): void {
-  if (started || !import.meta.env.PROD || !('serviceWorker' in navigator)) return
+  if (started || process.env.NODE_ENV !== 'production' || !('serviceWorker' in navigator)) return
   started = true
-  const base = import.meta.env.BASE_URL
   // Without the store the app still works while online.
-  navigator.serviceWorker.register(`${base}sw.js`, { scope: base }).catch(() => {})
+  navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {})
 }

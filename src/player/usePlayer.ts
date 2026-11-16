@@ -158,6 +158,8 @@ export const SIDEWAYS = '(max-height: 500px)'
 
 /** The 1 MB sound bank that comes with alphaTab, always present in the app. */
 const SMALL_SOUND_BANK = 'soundfont/sonivox.sf3'
+/** Path of the sound bank the player loads, chosen in next.config.mjs. */
+const SOUND_BANK = process.env.NEXT_PUBLIC_SOUND_BANK ?? SMALL_SOUND_BANK
 
 /**
  * How the score is laid out. Held sideways, a phone shows the tab as one
@@ -316,7 +318,7 @@ export function usePlayer() {
     const viewport = viewportRef.current
     if (!element || !viewport) return
 
-    const base = import.meta.env.BASE_URL
+    const base = '/'
     const prefs = loadPrefs()
     const api = new alphaTab.AlphaTabApi(element, {
       // Note positions are needed to draw practice marks next to the notes.
@@ -330,7 +332,7 @@ export function usePlayer() {
       },
       player: {
         playerMode: alphaTab.PlayerMode.EnabledSynthesizer,
-        soundFont: `${base}${__SOUND_BANK__}`,
+        soundFont: `${base}${SOUND_BANK}`,
         scrollElement: viewport,
         scrollOffsetY: -24,
         enableCursor: true,
@@ -352,8 +354,8 @@ export function usePlayer() {
     let soundRetry = 0
     api.player?.soundFontLoadFailed.on(() => {
       soundFailures++
-      const bank = soundFailures === 1 ? `${__SOUND_BANK__}?retry=1` : SMALL_SOUND_BANK
-      if (soundFailures > 2 || (soundFailures === 2 && __SOUND_BANK__ === SMALL_SOUND_BANK)) {
+      const bank = soundFailures === 1 ? `${SOUND_BANK}?retry=1` : SMALL_SOUND_BANK
+      if (soundFailures > 2 || (soundFailures === 2 && SOUND_BANK === SMALL_SOUND_BANK)) {
         patch({ error: 'The instrument sounds could not be loaded, so nothing can be played. Reload the page to try again.' })
         startOfflineStore()
         return

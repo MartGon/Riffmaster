@@ -6,8 +6,8 @@ They need:
 
 - a tab file at `samples/californication.gp` (not in the repository);
 - Brave at `/usr/bin/brave-browser` (any Chromium works; change `executablePath`);
-- the dev server on port 5199 (`npx vite --port 5199 --strictPort`), and for `library.mjs`
-  the built app on port 5198 (`npm run build && npx vite preview --port 5198 --strictPort`).
+- the dev server on port 5199 (`npx next dev --webpack -p 5199`), and for `library.mjs`
+  the built app on port 5198 (`npm run build && node scripts/serve.mjs --port 5198`).
 
 | Script | Checks |
 |---|---|

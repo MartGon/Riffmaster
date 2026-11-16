@@ -4,36 +4,36 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "dev:phone": "RIFFMASTER_HTTPS=1 vite",
-    "preview:phone": "RIFFMASTER_HTTPS=1 vite preview",
+    "dev": "node scripts/copy-assets.mjs && NEXT_TELEMETRY_DISABLED=1 next dev --webpack -p 5173",
+    "dev:phone": "node scripts/copy-assets.mjs --phone && NEXT_TELEMETRY_DISABLED=1 next dev --webpack -H 0.0.0.0 -p 5180 --experimental-https --experimental-https-key certs/server.key --experimental-https-cert certs/server.crt",
+    "preview:phone": "node scripts/serve.mjs --phone",
     "phone:setup": "node scripts/phone-setup.mjs",
     "sounds:setup": "node scripts/sounds-setup.mjs",
-    "build": "tsc -b && vite build",
+    "build": "tsc --noEmit && node scripts/copy-assets.mjs && NEXT_TELEMETRY_DISABLED=1 next build --webpack && node scripts/build-sw.mjs",
     "lint": "oxlint",
-    "preview": "vite preview",
+    "preview": "node scripts/serve.mjs",
     "test": "vitest run",
     "take:report": "node scripts/take-report.mjs"
   },
   "dependencies": {
     "@coderline/alphatab": "^1.9.0",
     "idb": "^8.0.4",
+    "next": "^16.4.6",
     "pitchy": "^4.1.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },
   "devDependencies": {
-    "@coderline/alphatab-vite": "^1.9.0",
+    "@coderline/alphatab-webpack": "^1.9.0",
     "@types/node": "^24.19.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "@vitejs/plugin-react": "^6.1.2",
     "fake-indexeddb": "^6.2.8",
     "oxlint": "^1.90.0",
     "playwright-core": "^1.65.1",
     "typescript": "~7.0.2",
     "vite": "^8.3.6",
-    "vite-plugin-pwa": "^2.0.0",
-    "vitest": "^5.1.0"
+    "vitest": "^5.1.0",
+    "workbox-build": "^7.4.1"
   }
 }
