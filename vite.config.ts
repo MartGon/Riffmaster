@@ -7,7 +7,7 @@ import { defineConfig } from 'vitest/config'
 /**
  * With RIFFMASTER_HTTPS=1 (`npm run dev:phone`), the server listens on the
  * network over HTTPS with the certificate from `npm run phone:setup`, so a
- * phone can use the microphone. See docs/phone.md.
+ * phone can use the microphone.
  */
 const phone = process.env.RIFFMASTER_HTTPS === '1'
 const https =

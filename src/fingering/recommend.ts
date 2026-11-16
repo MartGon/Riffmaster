@@ -6,7 +6,6 @@
  * hand shapes; moving from one shape to the next has a cost for shifting
  * the hand, stretching, reusing a finger and letting go of ringing notes;
  * the cheapest path through the whole piece is the suggestion.
- * See docs/fingering-recommender.md.
  */
 
 export type Finger = 1 | 2 | 3 | 4

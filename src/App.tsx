@@ -484,7 +484,7 @@ export default function App() {
         <div className="error" role="status">
           <span>
             This page was opened without HTTPS, so the browser blocks the microphone: practice
-            and the tuner will not work. On a phone, use the https:// address (see docs/phone.md).
+            and the tuner will not work. On a phone, use the https:// address (see "On a phone" in the README).
           </span>
           {closeButton('insecure')}
         </div>
