@@ -16,7 +16,7 @@ trust it once, and the dev server then serves the app over HTTPS.
    ```
 
    It creates the certificates in `certs/` (ignored by git) and prints an address such as
-   `http://192.168.31.102:5174`.
+   `http://192.168.1.20:5174`.
 2. On the iPhone, open that address in **Safari** (other browsers cannot install
    certificates) and follow the steps on the page:
    - Download the certificate and allow it.
@@ -31,10 +31,10 @@ trust it once, and the dev server then serves the app over HTTPS.
 npm run dev:phone
 ```
 
-Then open `https://192.168.31.102:5180` on the phone. It uses port 5180 so it can run
+Then open `https://<computer's address>:5180` on the phone, for example `https://192.168.1.20:5180`. It uses port 5180 so it can run
 alongside the usual `npm run dev` on 5173. The address is the computer's
-network address; `npm run phone:setup` prints it. `https://fedora-omen.local:5180` should
-also work.
+network address; `npm run phone:setup` prints it. The computer's
+`.local` name (`https://<hostname>.local:5180`) should also work.
 
 To try installing the app to the home screen, which needs the built version:
 
