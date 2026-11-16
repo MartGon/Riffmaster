@@ -1,0 +1,47 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+docs
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Tab files used for local testing (copyrighted, never commit)
+samples/
+
+# Copied from the alphaTab package by its Vite plugin on every dev start and build
+public/font/
+public/soundfont/
+
+# The larger sound bank, fetched by `npm run sounds:setup`
+public/sounds/
+
+# Output of the browser checks
+e2e/*.png
+e2e/*.wav
+e2e/expected.json
+
+# Private
+keys/
+leys/
+certs/
+.env.local

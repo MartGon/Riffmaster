@@ -1,0 +1,203 @@
+import { describe, expect, it } from 'vitest'
+import {
+  estimateLatency,
+  matchOptionsFor,
+  type TimingLeeway,
+  type ExpectedNote,
+  matchNotes,
+  type PlayedNote,
+  pitchMatches,
+  summarize,
+} from './matching'
+
+/** A scale run of eighth notes at 120 bpm (250 ms apart). */
+function line(count: number, gapMs = 250): ExpectedNote[] {
+  const pitches = [52, 55, 57, 59, 60, 59, 57, 55]
+  return Array.from({ length: count }, (_, i) => ({
+    timeMs: 1000 + i * gapMs,
+    midi: [pitches[i % pitches.length]],
+  }))
+}
+
+/** Plays the expected notes back with a device delay and per-note timing errors. */
+function perform(
+  expected: ExpectedNote[],
+  delayMs: number,
+  errorMs: (index: number) => number = () => 0,
+): PlayedNote[] {
+  return expected.map((note, i) => ({ timeMs: note.timeMs + delayMs + errorMs(i), midi: [note.midi[0]] }))
+}
+
+const jitter = (i: number) => ((i * 37) % 21) - 10 // deterministic, within ±10 ms
+
+describe('pitchMatches', () => {
+  it('accepts the written pitch within the tolerance', () => {
+    expect(pitchMatches([52.4], 52, 0.6)).toBe(true)
+    expect(pitchMatches([53], 52, 0.6)).toBe(false)
+    expect(pitchMatches([64], 52, 0.6)).toBe(false)
+  })
+
+  it('accepts any of the pitches the detector offered', () => {
+    expect(pitchMatches([64, 52], 52, 0.6)).toBe(true)
+    expect(pitchMatches([], 52, 0.6)).toBe(false)
+  })
+})
+
+describe('estimateLatency', () => {
+  it('recovers a short wired delay', () => {
+    const expected = line(24)
+    const estimate = estimateLatency(expected, perform(expected, 35, jitter))
+    expect(estimate?.latencyMs).toBeGreaterThan(25)
+    expect(estimate?.latencyMs).toBeLessThan(45)
+  })
+
+  it('recovers a long Bluetooth delay, longer than the gap between notes', () => {
+    const expected = line(32, 125) // sixteenth notes at 120 bpm
+    const estimate = estimateLatency(expected, perform(expected, 280, jitter))
+    expect(estimate?.latencyMs).toBeGreaterThan(270)
+    expect(estimate?.latencyMs).toBeLessThan(290)
+  })
+
+  it('is not thrown off by one badly timed first note', () => {
+    const expected = line(16)
+    const played = perform(expected, 200, (i) => (i === 0 ? 90 : jitter(i)))
+    const estimate = estimateLatency(expected, played)
+    expect(Math.abs((estimate?.latencyMs ?? 0) - 200)).toBeLessThan(10)
+  })
+
+  it('ignores wrong and missing notes', () => {
+    const expected = line(24)
+    const played = perform(expected, 120, jitter)
+      .filter((_, i) => i % 6 !== 0)
+      .map((note, i) => (i % 5 === 0 ? { ...note, midi: [note.midi[0] + 3] } : note))
+    const estimate = estimateLatency(expected, played)
+    expect(Math.abs((estimate?.latencyMs ?? 0) - 120)).toBeLessThan(10)
+  })
+
+  it('uses a known delay to settle a line that repeats one pitch', () => {
+    // Steady eighth notes on one pitch: the delay could equally be one note off.
+    const expected: ExpectedNote[] = Array.from({ length: 16 }, (_, i) => ({
+      timeMs: 1000 + i * 312.5,
+      midi: [45],
+    }))
+    const played = perform(expected, 250).slice(0, -1)
+    expect(Math.abs((estimateLatency(expected, played)?.latencyMs ?? 0) - 250)).toBeLessThan(10)
+    const withMemory = estimateLatency(expected, played, { preferMs: 240 })
+    expect(Math.abs((withMemory?.latencyMs ?? 0) - 250)).toBeLessThan(10)
+  })
+
+  it('prefers a delay that is not negative when candidates fit equally', () => {
+    const expected: ExpectedNote[] = Array.from({ length: 24 }, (_, i) => ({
+      timeMs: 1000 + i * 156.25,
+      midi: [45],
+    }))
+    for (const delay of [60, 100]) {
+      const estimate = estimateLatency(expected, perform(expected, delay).slice(0, -1))
+      expect(Math.abs((estimate?.latencyMs ?? 0) - delay), `delay ${delay}`).toBeLessThan(10)
+    }
+  })
+
+  it('gives no estimate from too little playing', () => {
+    const expected = line(8)
+    expect(estimateLatency(expected, perform(expected, 100).slice(0, 2))).toBeNull()
+    expect(estimateLatency(expected, [])).toBeNull()
+  })
+})
+
+describe('matchNotes', () => {
+  it('grades a clean performance as all on time', () => {
+    const expected = line(16)
+    const { results, extraNotes } = matchNotes(expected, perform(expected, 150, jitter), 150)
+    expect(results.every((r) => r.grade === 'onTime')).toBe(true)
+    expect(extraNotes).toBe(0)
+  })
+
+  it('reports missed, wrong, early and late notes', () => {
+    const expected = line(10)
+    const played = perform(expected, 100, (i) => (i === 3 ? -90 : i === 6 ? 110 : 0))
+      .map((note, i) => (i === 1 ? { ...note, midi: [note.midi[0] + 2] } : note)) // wrong pitch
+      .filter((_, i) => i !== 8) // not played
+    const { results, extraNotes } = matchNotes(expected, played, 100)
+    expect(results.map((r) => r.grade)).toEqual([
+      'onTime', 'missed', 'onTime', 'early', 'onTime', 'onTime', 'late', 'onTime', 'missed', 'onTime',
+    ])
+    expect(results[3].offsetMs).toBeCloseTo(-90)
+    expect(results[6].offsetMs).toBeCloseTo(110)
+    expect(extraNotes).toBe(1) // the wrong note
+  })
+
+  it('matches repeated notes one to one', () => {
+    const expected: ExpectedNote[] = [0, 1, 2, 3].map((i) => ({ timeMs: 1000 + i * 200, midi: [52] }))
+    const played = perform(expected, 0).filter((_, i) => i !== 1)
+    const { results } = matchNotes(expected, played, 0)
+    expect(results.map((r) => r.grade)).toEqual(['onTime', 'missed', 'onTime', 'onTime'])
+  })
+
+  it('does not let a chord count as a nearby single note that was not played', () => {
+    const expected: ExpectedNote[] = [
+      { timeMs: 1000, midi: [40, 47, 52] },
+      { timeMs: 1100, midi: [40] },
+    ]
+    // Only the chord is played; it is heard as one attack on its root.
+    const { results, extraNotes } = matchNotes(expected, [{ timeMs: 1000, midi: [40] }], 0)
+    expect(results.map((r) => r.grade)).toEqual(['unscored', 'missed'])
+    expect(extraNotes).toBe(0)
+  })
+
+  it('still credits a single note played right after a chord', () => {
+    const expected: ExpectedNote[] = [
+      { timeMs: 1000, midi: [40, 47, 52] },
+      { timeMs: 1100, midi: [40] },
+    ]
+    const played = [
+      { timeMs: 1005, midi: [40] },
+      { timeMs: 1090, midi: [40] },
+    ]
+    const { results } = matchNotes(expected, played, 0)
+    expect(results.map((r) => r.grade)).toEqual(['unscored', 'onTime'])
+  })
+
+  it('leaves chords unscored', () => {
+    const expected: ExpectedNote[] = [
+      { timeMs: 1000, midi: [52] },
+      { timeMs: 1500, midi: [52, 59, 64] },
+    ]
+    const { results } = matchNotes(expected, [{ timeMs: 1000, midi: [52] }], 0)
+    expect(results.map((r) => r.grade)).toEqual(['onTime', 'unscored'])
+  })
+})
+
+describe('summarize', () => {
+  it('counts grades and computes accuracy over scored notes', () => {
+    const expected: ExpectedNote[] = [
+      ...line(4),
+      { timeMs: 3000, midi: [40, 47] },
+    ]
+    const played = perform(line(4), 0, (i) => (i === 1 ? 80 : 0)).filter((_, i) => i !== 2)
+    const { results, extraNotes } = matchNotes(expected, played, 0)
+    const summary = summarize(results, extraNotes)
+    expect(summary).toMatchObject({
+      scored: 4, hit: 3, onTime: 2, late: 1, early: 0, missed: 1, unscored: 1, extraNotes: 0,
+    })
+    expect(summary.accuracy).toBeCloseTo(0.75)
+    expect(summary.typicalOffsetMs).toBe(0)
+  })
+
+  it('handles a take with nothing to score', () => {
+    expect(summarize([], 0)).toMatchObject({ scored: 0, accuracy: 0, typicalOffsetMs: null })
+  })
+})
+
+describe('timing leeway', () => {
+  it('judges the same playing more or less strictly', () => {
+    const expected = [{ timeMs: 1000, midi: [60] }, { timeMs: 2000, midi: [62] }, { timeMs: 3000, midi: [64] }]
+    // 40 ms late, 100 ms early, 180 ms late.
+    const played = [{ timeMs: 1040, midi: [60] }, { timeMs: 1900, midi: [62] }, { timeMs: 3180, midi: [64] }]
+    const grades = (leeway: TimingLeeway) =>
+      matchNotes(expected, played, 0, matchOptionsFor(leeway)).results.map((r) => r.grade)
+    expect(grades('strict')).toEqual(['late', 'early', 'missed'])
+    expect(grades('normal')).toEqual(['onTime', 'early', 'missed'])
+    expect(grades('relaxed')).toEqual(['onTime', 'early', 'late'])
+    expect(grades('loose')).toEqual(['onTime', 'onTime', 'late'])
+  })
+})

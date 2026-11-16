@@ -1,0 +1,38 @@
+{
+  "name": "riffmaster",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:phone": "RIFFMASTER_HTTPS=1 vite",
+    "preview:phone": "RIFFMASTER_HTTPS=1 vite preview",
+    "phone:setup": "node scripts/phone-setup.mjs",
+    "sounds:setup": "node scripts/sounds-setup.mjs",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@coderline/alphatab": "^1.9.0",
+    "idb": "^8.0.4",
+    "pitchy": "^4.1.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@coderline/alphatab-vite": "^1.9.0",
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "fake-indexeddb": "^6.2.8",
+    "oxlint": "^1.90.0",
+    "playwright-core": "^1.65.1",
+    "typescript": "~7.0.2",
+    "vite": "^8.3.6",
+    "vite-plugin-pwa": "^2.0.0",
+    "vitest": "^5.1.0"
+  }
+}
