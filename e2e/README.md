@@ -21,7 +21,7 @@ They need:
 | `sideways.mjs` | A phone held sideways: one long line of tab, larger, controls hidden while playing |
 | `wake.mjs` | Playback after the audio was suspended, as iOS does; stalled playback |
 | `fingering.mjs` | Suggested fingers: numbers in the tab and on the fretboard, other tracks, the editor, phone sizes |
-| `exercises.mjs` | Built-in exercises: the dialog, scales, finger exercises, chords, the library, phone size, and a practice take on an exercise. Needs no tab file. `node exercises.mjs ui\|practice\|all` |
+| `exercises.mjs` | Built-in exercises: the dialog, scales, finger exercises, chords, the library, phone size, and a practice take on an exercise with its take report (also at phone size). Needs no tab file. `node exercises.mjs ui\|practice\|all` |
 | `mixer.mjs` | Master and track volumes, remembered per device and per song; the app's name |
 | `editor.mjs` | The tab editor: typing, undo, clicks, copy and paste, bars, saving and restoring, the unsaved-changes question, new tabs, phone size. `node editor.mjs song\|new\|phone\|all` |
 

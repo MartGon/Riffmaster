@@ -1495,6 +1495,98 @@ input[type='range'] {
   margin-top: 14px;
 }
 
+/* Take report: a wider dialog whose table scrolls inside it, never the page. */
+.dialog.take-report {
+  width: min(820px, calc(100vw - 32px));
+}
+
+.take-report[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.take-report h2 {
+  margin-bottom: 0;
+}
+
+.take-report-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9rem;
+}
+
+.take-report-lines p,
+.take-report-strings {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.take-report-strings {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.take-report-warning {
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--danger-bg);
+  color: var(--danger-text);
+  font-weight: 600;
+}
+
+.take-report-table {
+  min-height: 0;
+  max-height: 50vh;
+  max-height: 50dvh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.take-report-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.take-report-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-2);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: left;
+}
+
+.take-report-table th,
+.take-report-table td {
+  padding: 4px 10px;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+
+.take-report-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.take-report-table td.number {
+  text-align: right;
+}
+
+.take-report-table tr.missed td {
+  background: var(--danger-bg);
+}
+
+.take-report-grade {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .shortcuts {
   border-collapse: collapse;
   font-size: 0.85rem;

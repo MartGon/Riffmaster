@@ -277,6 +277,37 @@ async function practice() {
       check('save: the report names the input and settings', typeof report.input?.label === 'string' && report.leeway === 'normal' && report.sampleRate === saved.sampleRate, JSON.stringify(report.input).slice(0, 120))
       console.log(`      skipped note at ${skippedNote.wavSec.toFixed(2)} s, grade ${skippedNote.grade}; delay ${Math.round(report.latencyMs)} ms (${report.latencySource})`)
     }
+    // The take report: note by note, what was heard against what the tab expected.
+    await page.click('.practice-results button:has-text("Take report")').catch(() => null)
+    const reportOpen = await page.waitForSelector('dialog.take-report[open]', { timeout: 5000 }).then(() => true, () => false)
+    check('report: the take report opens', reportOpen)
+    if (reportOpen) {
+      const rows = await page.$$eval('dialog.take-report tbody tr', (trs) => trs.map((tr) => [...tr.cells].map((cell) => cell.textContent.trim())))
+      check('report: a row per scored note', rows.length === 23, `${rows.length} rows`)
+      const missedRows = rows.filter((cells) => cells.includes('Missed'))
+      check('report: exactly two notes are missed', missedRows.length === 2, missedRows.map((cells) => cells[0]).join(', '))
+      const rowOf = (n) => rows.find((cells) => cells[0] === String(n)) ?? []
+      const wrongRow = rowOf(wrong + 1)
+      const wrongHeard = wrongRow[wrongRow.length - 1] ?? ''
+      check('report: the wrong note says what was heard instead', wrongRow.includes('Missed') && /^[A-G]/.test(wrongHeard) && wrongHeard !== 'nothing heard', wrongRow.join(' | '))
+      const skippedRow = rowOf(skipped + 1)
+      check('report: the skipped note says nothing was heard', skippedRow.includes('Missed') && skippedRow[skippedRow.length - 1] === 'nothing heard', skippedRow.join(' | '))
+      console.log(`      ${(await page.textContent('dialog.take-report .take-report-lines')).replace(/\s+/g, ' ').slice(0, 240)}`)
+      await page.screenshot({ path: `${out}exercises-take-report.png` })
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.waitForTimeout(300)
+      await page.screenshot({ path: `${out}exercises-take-report-phone.png` })
+      const fits = await page.evaluate(() => ({
+        page: document.documentElement.scrollWidth,
+        view: window.innerWidth,
+        dialog: document.querySelector('dialog.take-report').getBoundingClientRect().right,
+      }))
+      check('report: on a phone the page does not scroll sideways', fits.page <= fits.view && fits.dialog <= fits.view, JSON.stringify(fits))
+      await page.setViewportSize({ width: 1280, height: 800 })
+      await page.click('dialog.take-report button:has-text("Close")')
+      const closed = await page.waitForSelector('dialog.take-report', { state: 'detached', timeout: 3000 }).then(() => true, () => false)
+      check('report: the dialog closes', closed)
+    }
     await page.click('.topbar .button')
     await page.waitForSelector('.library-head')
     const row = await page.textContent('.song-row')

@@ -26,6 +26,7 @@ import {
 } from './matching'
 import { type InputDevice, listInputs, MicInput } from './micInput'
 import { downloadFile, encodeTake } from './takeFile'
+import { describeTake, inputLevel, readTakeReport, type TakeDetails } from './takeReport'
 import { trainerOutcome, type TrainerSettings } from './trainer'
 
 export type TakeKind = 'practice' | 'measure'
@@ -152,6 +153,8 @@ interface PassOutcome {
 interface Take {
   kind: TakeKind
   trackIndex: number
+  /** Strings on the practised track, so the report can number them as players do. */
+  strings: number
   expected: TabNote[]
   played: DetectedNote[]
   detector: NoteDetector
@@ -492,6 +495,7 @@ export function usePractice(
       latencySupport: estimate?.support ?? null,
       measuredMs: measured ?? null,
       learnedMs: settings.learned[mic.deviceId] ?? null,
+      strings: take.strings,
       expected: scored.map((entry, index) => ({
         pass: entry.pass,
         bar: entry.note.bar,
@@ -847,6 +851,7 @@ export function usePractice(
       const take: Take = {
         kind,
         trackIndex: track.index,
+        strings: track.staves[0]?.tuning.length ?? 0,
         expected,
         played,
         detector: new NoteDetector(mic.sampleRate, (note) => played.push(note)),
@@ -1125,6 +1130,12 @@ export function usePractice(
         const stamp = report.savedAt.slice(0, 16).replace(/[T:]/g, '-')
         const sampleRate = micRef.current?.sampleRate ?? (report as { sampleRate?: number }).sampleRate ?? 48000
         downloadFile(`riffmaster-take-${stamp}.wav`, encodeTake(take.audio, sampleRate, report), 'audio/wav')
+      },
+      /** What the last take expected and heard, note by note; null when no take is held. */
+      takeDetails: (): TakeDetails | null => {
+        const take = savedRef.current
+        const report = take?.report ? readTakeReport(take.report()) : null
+        return take && report ? describeTake(report, inputLevel(take.audio)) : null
       },
     }),
     [abortTake, clearMarks, closeMic, openMic, patch, start, stop, updateSettings],

@@ -1,44 +1,28 @@
 import { useState } from 'react'
 import type { TakeRecord } from '../library/types'
-import { gradeShapes, type Mark } from '../practice/grades'
 import { TIMING_LEEWAYS, type TimingLeeway } from '../practice/matching'
+import { DELAY_SOURCE_TEXT, type TakeDetails } from '../practice/takeReport'
 import { TRAINER_STEPS, TRAINER_THRESHOLDS } from '../practice/trainer'
 import type { PracticeActions, PracticeResult, PracticeState } from '../practice/usePractice'
+import { Shape } from './GradeShape'
 import { HistoryView } from './HistoryView'
 import { Icon } from './Icon'
-
-const sourceText: Record<PracticeResult['latencySource'], string> = {
-  measured: 'measured for this input',
-  estimated: 'worked out from your playing',
-  remembered: 'remembered from your last take',
-  none: 'not enough notes to work out the delay',
-}
+import { TakeReportDialog } from './TakeReportDialog'
 
 const percent = (share: number) => `${Math.round(share * 100)}%`
-
-/** The shape that marks a result in the tab, as a key beside its count. */
-function Shape({ mark }: { mark: Mark }) {
-  return (
-    <svg
-      className={`mark-key mark-${mark}`}
-      viewBox="0 0 10 10"
-      width="11"
-      height="11"
-      aria-hidden="true"
-      dangerouslySetInnerHTML={{ __html: gradeShapes[mark] }}
-    />
-  )
-}
 
 function Results({
   result,
   onClear,
   onSave,
+  onReport,
 }: {
   result: PracticeResult
   onClear: () => void
   /** Saves the take's recording for troubleshooting; absent when there is none. */
   onSave?: () => void
+  /** Opens the note-by-note report of the take; absent when there is none. */
+  onReport?: () => void
 }) {
   const { summary } = result
   return (
@@ -79,13 +63,18 @@ function Results({
               {summary.biasMs > 0 ? 'behind' : 'ahead of'} the beat.{' '}
             </>
           )}
-        Delay used: {result.latencyMs} ms ({sourceText[result.latencySource]}).
+        Delay used: {result.latencyMs} ms ({DELAY_SOURCE_TEXT[result.latencySource]}).
         {summary.unscored > 0 && <> {summary.unscored} chords were not scored.</>}
       </p>
       <button type="button" className="toggle" onClick={onClear}>
         <Icon name="close" />
         Clear results
       </button>
+      {onReport && (
+        <button type="button" className="toggle" onClick={onReport}>
+          Take report
+        </button>
+      )}
       {onSave && (
         <button
           type="button"
@@ -113,6 +102,7 @@ interface Props {
 
 export function PracticePanel({ state, actions, speed, takes, onLoopBar, onClearHistory }: Props) {
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [report, setReport] = useState<TakeDetails | null>(null)
   const recording = state.phase === 'recording' || state.phase === 'starting'
   const measuring = recording && state.kind === 'measure'
   const { trainer } = state
@@ -312,8 +302,10 @@ export function PracticePanel({ state, actions, speed, takes, onLoopBar, onClear
           result={state.result}
           onClear={actions.dismissResult}
           onSave={state.canSave ? actions.saveTake : undefined}
+          onReport={state.canSave ? () => setReport(actions.takeDetails()) : undefined}
         />
       )}
+      {report && <TakeReportDialog details={report} onSave={actions.saveTake} onClose={() => setReport(null)} />}
       {historyOpen && (
         <HistoryView takes={takes} disabled={busy} onLoopBar={onLoopBar} onClear={onClearHistory} />
       )}
