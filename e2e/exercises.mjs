@@ -4,6 +4,7 @@
 import { chromium } from 'playwright-core'
 import fs from 'node:fs'
 import { synthesize } from '../src/practice/synth.ts'
+import { decodeTake } from '../src/practice/takeFile.ts'
 
 const out = new URL('.', import.meta.url).pathname
 const results = []
@@ -244,6 +245,38 @@ async function practice() {
     check('practice: the skipped and the wrong note are missed', r.missed === 2, `missed ${r.missed}`)
     check('practice: the rest are on time', r.onTime === 21 && r.early === 0 && r.late === 0, JSON.stringify(r))
     await page.screenshot({ path: `${out}exercises-practice.png` })
+    // The take can be saved as one file: the recording with the report inside.
+    const [download] = await Promise.all([
+      page.waitForEvent('download', { timeout: 10000 }).catch(() => null),
+      page.click('.practice-results button:has-text("Save take")').catch(() => null),
+    ])
+    check('save: the take downloads as a WAV file', /^riffmaster-take-[\d-]+\.wav$/.test(download?.suggestedFilename() ?? ''), download?.suggestedFilename())
+    if (download) {
+      const file = `${out}take-saved.wav`
+      await download.saveAs(file)
+      const saved = decodeTake(new Uint8Array(fs.readFileSync(file)))
+      const report = saved.report
+      const seconds = saved.samples.length / saved.sampleRate
+      check('save: the recording covers the take', seconds > 9 && seconds < 20 && Math.abs(seconds - report.savedSec) < 0.01, `${seconds.toFixed(1)} s at ${saved.sampleRate} Hz`)
+      const missed = report.expected.filter((n) => n.grade === 'missed')
+      check('save: the report lists every expected note with its grade', report.expected.length === 23 && missed.length === 2, `${report.expected.length} notes, ${missed.length} missed`)
+      check('save: the report lists what was heard', report.heard.length >= 21 && report.heard.filter((n) => n.matched).length === 21, `${report.heard.length} heard`)
+      // A matched note's place in the recording agrees with where it was heard.
+      const hits = report.expected.filter((n) => n.offsetMs !== null)
+      const worst = Math.max(...hits.map((n) => Math.min(...report.heard.map((h) => Math.abs(h.wavSec - (n.wavSec + n.offsetMs / 1000))))))
+      check('save: expected notes are placed in the recording', worst < 0.015, `worst ${(worst * 1000).toFixed(1)} ms`)
+      // And the sound is really there: loud at a played note, quiet at the skipped one.
+      const level = (sec) => {
+        const from = Math.round(sec * saved.sampleRate)
+        let sum = 0
+        for (let i = from; i < from + 4800; i++) sum += saved.samples[i] ** 2
+        return Math.sqrt(sum / 4800)
+      }
+      const skippedNote = report.expected[skipped]
+      check('save: the recording has sound at a played note', level(report.expected[0].wavSec) > 0.02, level(report.expected[0].wavSec).toFixed(4))
+      check('save: the report names the input and settings', typeof report.input?.label === 'string' && report.leeway === 'normal' && report.sampleRate === saved.sampleRate, JSON.stringify(report.input).slice(0, 120))
+      console.log(`      skipped note at ${skippedNote.wavSec.toFixed(2)} s, grade ${skippedNote.grade}; delay ${Math.round(report.latencyMs)} ms (${report.latencySource})`)
+    }
     await page.click('.topbar .button')
     await page.waitForSelector('.library-head')
     const row = await page.textContent('.song-row')

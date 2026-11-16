@@ -56,6 +56,9 @@ export class MicInput {
   readonly sampleRate: number
   /** The device actually opened, which can differ from the one asked for. */
   readonly deviceId: string
+  /** The device's name, and the settings the browser opened it with. */
+  readonly label: string
+  readonly trackSettings: MediaTrackSettings
   private readonly context: AudioContext
   private readonly stream: MediaStream
   private firstFrame: number | null = null
@@ -67,7 +70,10 @@ export class MicInput {
     this.context = context
     this.stream = stream
     this.sampleRate = context.sampleRate
-    this.deviceId = stream.getAudioTracks()[0]?.getSettings().deviceId ?? ''
+    const track = stream.getAudioTracks()[0]
+    this.trackSettings = track?.getSettings() ?? {}
+    this.deviceId = this.trackSettings.deviceId ?? ''
+    this.label = track?.label ?? ''
     node.port.onmessage = (event: MessageEvent<{ frame: number; samples: Float32Array }>) => {
       const { frame, samples } = event.data
       this.firstFrame ??= frame
@@ -123,6 +129,12 @@ export class MicInput {
   toPageTimeMs(secondsSinceOpen: number): number {
     const first = (this.firstFrame ?? 0) / this.sampleRate
     return (first + secondsSinceOpen) * 1000 + (Number.isFinite(this.clockOffsetMs) ? this.clockOffsetMs : 0)
+  }
+
+  /** The reverse of toPageTimeMs: where a moment on the page's clock falls in the captured audio, in seconds. */
+  fromPageTimeMs(pageMs: number): number {
+    const first = (this.firstFrame ?? 0) / this.sampleRate
+    return (pageMs - (Number.isFinite(this.clockOffsetMs) ? this.clockOffsetMs : 0)) / 1000 - first
   }
 
   close(): void {

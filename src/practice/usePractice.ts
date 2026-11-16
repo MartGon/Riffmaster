@@ -2,7 +2,7 @@ import * as alphaTab from '@coderline/alphatab'
 import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { TakeRecord } from '../library/types'
 import type { PlayerState } from '../player/usePlayer'
-import { type DetectedNote, NoteDetector } from './detector'
+import { defaultDetectorOptions, type DetectedNote, NoteDetector } from './detector'
 import {
   type CalibrationMode,
   loadPracticeSettings,
@@ -25,6 +25,7 @@ import {
   type TimingLeeway,
 } from './matching'
 import { type InputDevice, listInputs, MicInput } from './micInput'
+import { downloadFile, encodeTake } from './takeFile'
 import { trainerOutcome, type TrainerSettings } from './trainer'
 
 export type TakeKind = 'practice' | 'measure'
@@ -86,6 +87,8 @@ export interface PracticeState {
   passes: number[]
   /** Number of the pass being played, from 1; 0 when not looping. */
   pass: number
+  /** Whether the last take's recording is still held and can be saved to a file. */
+  canSave: boolean
 }
 
 const initialState: PracticeState = {
@@ -108,6 +111,7 @@ const initialState: PracticeState = {
   leeway: 'normal',
   passes: [],
   pass: 0,
+  canSave: false,
 }
 
 const percent = (share: number) => `${Math.round(share * 100)}%`
@@ -116,6 +120,8 @@ const percent = (share: number) => `${Math.round(share * 100)}%`
 const TRAINER_PAUSE_MS = 2500
 /** Ticks (960 to a quarter note) the reported playback position may be past the real one. */
 const POSITION_SLACK = 2
+/** Longest stretch of input kept for saving a take, in seconds. */
+const MAX_SAVED_SEC = 600
 
 /**
  * One run through the notes of a take. A take is one pass, unless Loop is on:
@@ -149,6 +155,11 @@ interface Take {
   expected: TabNote[]
   played: DetectedNote[]
   detector: NoteDetector
+  /** The input as it was heard, kept so the take can be saved for troubleshooting. */
+  audio: Float32Array[]
+  audioSamples: number
+  /** What the last scoring made of the take, for the same purpose. */
+  report: (() => Record<string, unknown>) | null
   /** Position in the microphone's audio at which this take's detector started, in seconds. */
   micStartSec: number | null
   passes: Pass[]
@@ -237,6 +248,8 @@ export function usePractice(
   const optionsRef = useRef(options)
   const micRef = useRef<MicInput | null>(null)
   const takeRef = useRef<Take | null>(null)
+  /** The last finished practice take, held until the next one starts. */
+  const savedRef = useRef<Take | null>(null)
   const markedRef = useRef<Map<alphaTab.model.Note, Mark>>(new Map())
   const lastLevelAt = useRef(0)
   /** Counts microphone open and close requests, so a slow open can tell it was superseded. */
@@ -337,6 +350,10 @@ export function usePractice(
           if (take) {
             take.micStartSec ??= block.frame / mic.sampleRate
             take.detector.feed(block.samples)
+            if (take.audioSamples < MAX_SAVED_SEC * mic.sampleRate) {
+              take.audio.push(block.samples)
+              take.audioSamples += block.samples.length
+            }
           }
           const now = performance.now()
           if (now - lastLevelAt.current > 90) {
@@ -456,6 +473,44 @@ export function usePractice(
         if (!usedPlayed.has(index) && at >= from && at <= to) extraNotes++
       })
     }
+    // Everything needed to see afterwards why a note was or was not counted.
+    // `wavSec` places a note in the saved recording.
+    const wavSec = (timeMs: number) => mic.fromPageTimeMs(timeMs + base) - micStart
+    take.report = () => ({
+      sampleRate: mic.sampleRate,
+      input: { label: mic.label, settings: mic.trackSettings },
+      savedSec: take.audioSamples / mic.sampleRate,
+      speed: take.speed,
+      looping: take.looping,
+      loopMs: take.loopMs,
+      passes: take.passes.length,
+      leeway: settings.leeway,
+      match: options,
+      detector: defaultDetectorOptions,
+      latencyMs,
+      latencySource,
+      latencySupport: estimate?.support ?? null,
+      measuredMs: measured ?? null,
+      learnedMs: settings.learned[mic.deviceId] ?? null,
+      expected: scored.map((entry, index) => ({
+        pass: entry.pass,
+        bar: entry.note.bar,
+        tick: entry.note.tick,
+        midi: entry.midi,
+        places: entry.note.notes.map((note) => ({ string: note.string, fret: note.fret })),
+        timeMs: entry.timeMs,
+        // Where its sound should be in the recording, the delay included.
+        wavSec: wavSec(entry.timeMs + latencyMs),
+        grade: results[index].grade,
+        offsetMs: results[index].offsetMs,
+      })),
+      heard: played.map((note, index) => ({
+        wavSec: take.played[index].timeSec,
+        timeMs: note.timeMs,
+        midi: note.midi,
+        matched: usedPlayed.has(index),
+      })),
+    })
     if (import.meta.env.DEV) {
       // Lets automated checks see what was heard and how it lined up.
       ;(window as unknown as { __riffmasterTake?: unknown }).__riffmasterTake = {
@@ -639,6 +694,7 @@ export function usePractice(
       })
       return
     }
+    savedRef.current = take.report && take.audioSamples > 0 ? take : null
     // Colour the notes in the tab.
     const marks = new Map<alphaTab.model.Note, Mark>()
     for (const [tabNote, grade] of shown.grades) {
@@ -656,6 +712,7 @@ export function usePractice(
       pass: 0,
       marked: shown.grades.size > 0,
       result: shown.result,
+      canSave: savedRef.current !== null,
       passes: take.looping && outcome ? [...s.passes, outcome.result.summary.accuracy] : s.passes,
     }))
 
@@ -761,7 +818,9 @@ export function usePractice(
         live: null,
         passes: [],
         pass: looping ? 1 : 0,
+        canSave: false,
       })
+      savedRef.current = null
       clearMarks()
       const mic = micRef.current ?? (await openMic(settings.inputId))
       if (!mic) {
@@ -791,6 +850,9 @@ export function usePractice(
         expected,
         played,
         detector: new NoteDetector(mic.sampleRate, (note) => played.push(note)),
+        audio: [],
+        audioSamples: 0,
+        report: null,
         micStartSec: null,
         passes: [newPass(1)],
         looping,
@@ -1054,6 +1116,15 @@ export function usePractice(
       dismissResult: () => {
         clearMarks()
         patch({ phase: 'idle', result: null })
+      },
+      /** Downloads the last take: its recording, with what was expected and heard inside. */
+      saveTake: () => {
+        const take = savedRef.current
+        if (!take?.report) return
+        const report = { app: 'RiffMaster', savedAt: new Date().toISOString(), ...take.report() }
+        const stamp = report.savedAt.slice(0, 16).replace(/[T:]/g, '-')
+        const sampleRate = micRef.current?.sampleRate ?? (report as { sampleRate?: number }).sampleRate ?? 48000
+        downloadFile(`riffmaster-take-${stamp}.wav`, encodeTake(take.audio, sampleRate, report), 'audio/wav')
       },
     }),
     [abortTake, clearMarks, closeMic, openMic, patch, start, stop, updateSettings],

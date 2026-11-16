@@ -30,7 +30,16 @@ function Shape({ mark }: { mark: Mark }) {
   )
 }
 
-function Results({ result, onClear }: { result: PracticeResult; onClear: () => void }) {
+function Results({
+  result,
+  onClear,
+  onSave,
+}: {
+  result: PracticeResult
+  onClear: () => void
+  /** Saves the take's recording for troubleshooting; absent when there is none. */
+  onSave?: () => void
+}) {
   const { summary } = result
   return (
     <div className="practice-results" role="status">
@@ -77,6 +86,16 @@ function Results({ result, onClear }: { result: PracticeResult; onClear: () => v
         <Icon name="close" />
         Clear results
       </button>
+      {onSave && (
+        <button
+          type="button"
+          className="toggle"
+          onClick={onSave}
+          title="Downloads the recording of this take with what the app heard, to find out why notes were missed"
+        >
+          Save take
+        </button>
+      )}
     </div>
   )
 }
@@ -289,7 +308,11 @@ export function PracticePanel({ state, actions, speed, takes, onLoopBar, onClear
         </p>
       )}
       {state.phase === 'results' && state.result && (
-        <Results result={state.result} onClear={actions.dismissResult} />
+        <Results
+          result={state.result}
+          onClear={actions.dismissResult}
+          onSave={state.canSave ? actions.saveTake : undefined}
+        />
       )}
       {historyOpen && (
         <HistoryView takes={takes} disabled={busy} onLoopBar={onLoopBar} onClear={onClearHistory} />

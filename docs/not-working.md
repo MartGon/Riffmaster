@@ -38,3 +38,14 @@ Answers from the assistant; the list above is as written.
 7. **Rename to RiffMaster:** done for everything visible: page title, header, installed
    app name, package name, and the names under which the browser stores the library
    and settings.
+
+## Finding out why notes are missed
+
+After a practice take, the results have a **Save take** button. It downloads one WAV
+file: the input as the app heard it, with a report inside (an extra chunk that audio
+programs skip). The report lists every expected note with its grade and its place in the
+recording, every note the app heard, the delay used, the input's name and settings, and
+the detector's settings. `decodeTake` in `src/practice/takeFile.ts` reads it back.
+
+The recording is held in memory until the next take starts and is not stored anywhere
+unless the button is pressed. Up to ten minutes are kept.
