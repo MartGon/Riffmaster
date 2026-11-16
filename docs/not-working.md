@@ -49,3 +49,11 @@ the detector's settings. `decodeTake` in `src/practice/takeFile.ts` reads it bac
 
 The recording is held in memory until the next take starts and is not stored anywhere
 unless the button is pressed. Up to ten minutes are kept.
+
+## Reading a saved take
+
+`npm run take:report -- <file.wav>` (add `--leeway strict|normal|relaxed|loose` to rescore
+with another timing setting) prints a report for a saved take: the input, its level (with a
+warning for clipping or a very quiet input) and the delay; the score as saved next to the
+score the current detector gives the same recording; a row per expected note with what was
+heard instead of each missed one; and misses per string and after breaks.

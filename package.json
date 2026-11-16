@@ -12,7 +12,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "take:report": "node scripts/take-report.mjs"
   },
   "dependencies": {
     "@coderline/alphatab": "^1.9.0",
