@@ -7,12 +7,14 @@ function Toggle(props: {
   label: string
   pressed: boolean
   disabled?: boolean
+  /** The main action of the row, drawn to stand out. */
+  main?: boolean
   onChange: (pressed: boolean) => void
 }) {
   return (
     <button
       type="button"
-      className="toggle"
+      className={props.main ? 'toggle toggle-main' : 'toggle'}
       aria-pressed={props.pressed}
       disabled={props.disabled}
       title={props.label}
@@ -102,9 +104,7 @@ export function Transport({
           />
           <span className="time">{formatTime(state.endTime)}</span>
         </div>
-      </div>
 
-      <div className="transport-row">
         <div className="group tempo">
           <button
             type="button"
@@ -147,109 +147,118 @@ export function Transport({
             <span className="tempo-percent">{percent}%</span>
           </button>
         </div>
+      </div>
 
-        <div className="group">
-          <Toggle
-            icon="loop"
-            label="Loop"
-            pressed={state.isLooping}
-            disabled={!ready || practiceBusy}
-            onChange={actions.setLooping}
-          />
-          {/* One place for choosing bars and clearing them, so the row stays short on a phone. */}
-          {picking ? (
-            <button
-              type="button"
-              className="toggle"
-              aria-pressed="true"
-              title="Stop selecting bars"
-              disabled={practiceBusy}
-              onClick={actions.cancelPicking}
-            >
-              <Icon name="select" />
-              <span className="toggle-label">Selecting…</span>
-            </button>
-          ) : state.hasLoopRange ? (
-            <button
-              type="button"
-              className="toggle"
-              title="Clear selection"
-              aria-label="Clear selection"
-              disabled={practiceBusy}
-              onClick={actions.clearLoopRange}
-            >
-              <Icon name="close" />
-              <span className="toggle-label">Clear selection</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="toggle"
-              title="Select bars: tap the first bar, then the last"
-              aria-label="Select bars"
+      <div className="transport-row">
+        <div className="group toggles">
+          <div className="toggle-group" role="group" aria-label="Playback">
+            <Toggle
+              icon="loop"
+              label="Loop"
+              pressed={state.isLooping}
               disabled={!ready || practiceBusy}
-              onClick={actions.startPicking}
-            >
-              <Icon name="select" />
-              <span className="toggle-label">Select bars</span>
-            </button>
-          )}
-          <Toggle
-            icon="metronome"
-            label="Metronome"
-            pressed={state.metronome}
-            disabled={!ready}
-            onChange={actions.setMetronome}
-          />
-          <Toggle
-            icon="countIn"
-            label="Count-in"
-            pressed={state.countIn}
-            disabled={!ready}
-            onChange={actions.setCountIn}
-          />
-          <Toggle
-            icon="notation"
-            label="Notation"
-            pressed={state.showNotation}
-            disabled={!ready || practiceBusy}
-            onChange={actions.setShowNotation}
-          />
-          <Toggle
-            icon="fretboard"
-            label="Fretboard"
-            pressed={fretboardOpen}
-            disabled={!ready}
-            onChange={onToggleFretboard}
-          />
-          <Toggle
-            icon="fingering"
-            label="Fingering"
-            pressed={fingeringOn}
-            disabled={!ready}
-            onChange={onToggleFingering}
-          />
-          <Toggle
-            icon="tuner"
-            label="Tuner"
-            pressed={tunerOpen}
-            disabled={!ready || practiceBusy}
-            onChange={onToggleTuner}
-          />
-          <Toggle
-            icon="edit"
-            label="Edit"
-            pressed={editorOpen}
-            disabled={!ready || practiceBusy}
-            onChange={onToggleEditor}
-          />
-          <Toggle
-            icon="mic"
-            label="Practice"
-            pressed={practiceOpen}
-            disabled={!ready || !state.canPlay}
-            onChange={onTogglePractice}
-          />
+              onChange={actions.setLooping}
+            />
+            {/* One place for choosing bars and clearing them, so the row stays short on a phone. */}
+            {picking ? (
+              <button
+                type="button"
+                className="toggle"
+                aria-pressed="true"
+                title="Stop selecting bars"
+                disabled={practiceBusy}
+                onClick={actions.cancelPicking}
+              >
+                <Icon name="select" />
+                <span className="toggle-label">Selecting…</span>
+              </button>
+            ) : state.hasLoopRange ? (
+              <button
+                type="button"
+                className="toggle"
+                title="Clear selection"
+                aria-label="Clear selection"
+                disabled={practiceBusy}
+                onClick={actions.clearLoopRange}
+              >
+                <Icon name="close" />
+                <span className="toggle-label">Clear selection</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="toggle"
+                title="Select bars: tap the first bar, then the last"
+                aria-label="Select bars"
+                disabled={!ready || practiceBusy}
+                onClick={actions.startPicking}
+              >
+                <Icon name="select" />
+                <span className="toggle-label">Select bars</span>
+              </button>
+            )}
+            <Toggle
+              icon="metronome"
+              label="Metronome"
+              pressed={state.metronome}
+              disabled={!ready}
+              onChange={actions.setMetronome}
+            />
+            <Toggle
+              icon="countIn"
+              label="Count-in"
+              pressed={state.countIn}
+              disabled={!ready}
+              onChange={actions.setCountIn}
+            />
+          </div>
+          <div className="toggle-group" role="group" aria-label="View">
+            <Toggle
+              icon="notation"
+              label="Notation"
+              pressed={state.showNotation}
+              disabled={!ready || practiceBusy}
+              onChange={actions.setShowNotation}
+            />
+            <Toggle
+              icon="fretboard"
+              label="Fretboard"
+              pressed={fretboardOpen}
+              disabled={!ready}
+              onChange={onToggleFretboard}
+            />
+            <Toggle
+              icon="fingering"
+              label="Fingering"
+              pressed={fingeringOn}
+              disabled={!ready}
+              onChange={onToggleFingering}
+            />
+          </div>
+          <div className="toggle-group" role="group" aria-label="Tools">
+            <Toggle
+              icon="tuner"
+              label="Tuner"
+              pressed={tunerOpen}
+              disabled={!ready || practiceBusy}
+              onChange={onToggleTuner}
+            />
+            <Toggle
+              icon="edit"
+              label="Edit"
+              pressed={editorOpen}
+              disabled={!ready || practiceBusy}
+              onChange={onToggleEditor}
+            />
+            <Toggle
+              icon="mic"
+              label="Practice"
+              main
+              pressed={practiceOpen}
+              disabled={!ready || !state.canPlay}
+              onChange={onTogglePractice}
+            />
+          </div>
         </div>
       </div>
     </footer>

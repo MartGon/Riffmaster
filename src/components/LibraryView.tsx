@@ -61,7 +61,12 @@ export function LibraryView({ songs, practice, busy, onOpen, onDelete, onAdd, on
   return (
     <div className="library">
       <div className="library-head">
-        <h1>Library</h1>
+        <h1>
+          Library
+          <span className="library-count">
+            {songs.length === 1 ? '1 tab' : `${songs.length} tabs`}
+          </span>
+        </h1>
         <div className="library-buttons">
           <button type="button" className="button" disabled={busy} onClick={onExercises}>
             <Icon name="exercise" />
@@ -81,15 +86,20 @@ export function LibraryView({ songs, practice, busy, onOpen, onDelete, onAdd, on
         {songs.map((song) => (
           <li key={song.id} className="song-row">
             <button type="button" className="song-open" onClick={() => onOpen(song)}>
-              <span className="song-row-title">{song.title}</span>
-              <span className="song-row-meta">
-                {[
-                  song.artist,
-                  `Opened ${formatOpened(song.lastOpenedAt)}`,
-                  practiceText(practice.get(song.id)),
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
+              <span className={song.artist === 'Exercise' ? 'song-tile exercise' : 'song-tile'} aria-hidden="true">
+                <Icon name={song.artist === 'Exercise' ? 'exercise' : 'notation'} />
+              </span>
+              <span className="song-text">
+                <span className="song-row-title">{song.title}</span>
+                <span className="song-row-meta">
+                  {[
+                    song.artist,
+                    `Opened ${formatOpened(song.lastOpenedAt)}`,
+                    practiceText(practice.get(song.id)),
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </span>
               </span>
             </button>
             <button

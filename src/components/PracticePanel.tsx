@@ -122,62 +122,7 @@ export function PracticePanel({ state, actions, speed, takes, onLoopBar, onClear
         </p>
       )}
 
-      <div className="practice-row">
-        <label className="field">
-          <span>Input</span>
-          <select
-            value={state.inputId ?? ''}
-            disabled={busy || state.inputs.length === 0}
-            onChange={(event) => actions.selectInput(event.target.value)}
-          >
-            {state.inputs.length === 0 && <option value="">No input</option>}
-            {state.inputs.map((input) => (
-              <option key={input.id} value={input.id}>
-                {input.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div
-          className="meter"
-          role="meter"
-          aria-label="Input level"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={Math.round(Math.min(1, state.level) * 100)}
-        >
-          <div style={{ width: `${Math.min(100, Math.sqrt(state.level) * 100)}%` }} />
-        </div>
-
-        <label className="field">
-          <span>Delay</span>
-          <select
-            value={state.mode}
-            disabled={busy}
-            onChange={(event) => actions.setMode(event.target.value === 'measured' ? 'measured' : 'auto')}
-          >
-            <option value="auto">Automatic, from your playing</option>
-            <option value="measured" disabled={state.measuredMs === null}>
-              {state.measuredMs === null ? 'Measured (not measured yet)' : `Measured, ${state.measuredMs} ms`}
-            </option>
-          </select>
-        </label>
-        <button
-          type="button"
-          className="toggle"
-          disabled={!state.micReady || practising}
-          title="Hold a headphone against the microphone and let the app time its own sound"
-          onClick={measuring ? actions.stop : actions.measure}
-        >
-          {measuring ? 'Stop measuring' : 'Measure delay'}
-        </button>
-
-        <span className="practice-spacer" />
-        {recording && state.kind === 'practice' && state.live && (
-          <span className="practice-live" role="status">
-            {state.live.hit} / {state.live.total} notes
-          </span>
-        )}
+      <div className="practice-row practice-main">
         <button
           type="button"
           className="button primary"
@@ -187,72 +132,10 @@ export function PracticePanel({ state, actions, speed, takes, onLoopBar, onClear
           <Icon name={practising ? 'stop' : 'mic'} />
           {practising ? (trainer.running ? 'Stop trainer' : 'Stop') : 'Start practice'}
         </button>
-      </div>
-
-      <div className="practice-row practice-options">
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={state.liveMarks}
-            onChange={(event) => actions.setLiveMarks(event.target.checked)}
-          />
-          Mark notes while playing
-        </label>
-        <label className="field inline">
-          <span>Timing</span>
-          <select
-            value={state.leeway}
-            disabled={busy}
-            title="How far from the beat a note may be and still count as on time"
-            onChange={(event) => actions.setLeeway(event.target.value as TimingLeeway)}
-          >
-            {TIMING_LEEWAYS.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={trainer.enabled}
-            disabled={busy}
-            onChange={(event) => actions.setTrainer({ enabled: event.target.checked })}
-          />
-          Speed trainer
-        </label>
-        {trainer.enabled && (
-          <>
-            <label className="field inline">
-              <span>Move up at</span>
-              <select
-                value={trainer.threshold}
-                disabled={busy}
-                onChange={(event) => actions.setTrainer({ threshold: Number(event.target.value) })}
-              >
-                {TRAINER_THRESHOLDS.map((value) => (
-                  <option key={value} value={value}>
-                    {percent(value)} played
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field inline">
-              <span>Raise tempo by</span>
-              <select
-                value={trainer.step}
-                disabled={busy}
-                onChange={(event) => actions.setTrainer({ step: Number(event.target.value) })}
-              >
-                {TRAINER_STEPS.map((value) => (
-                  <option key={value} value={value}>
-                    {percent(value)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </>
+        {recording && state.kind === 'practice' && state.live && (
+          <span className="practice-live" role="status">
+            {state.live.hit} / {state.live.total} notes
+          </span>
         )}
         <span className="practice-spacer" />
         <button
@@ -265,6 +148,129 @@ export function PracticePanel({ state, actions, speed, takes, onLoopBar, onClear
           <Icon name="history" />
           History{takes.length > 0 ? ` (${takes.length})` : ''}
         </button>
+      </div>
+
+      <div className="practice-groups">
+        <fieldset className="practice-group">
+          <legend>Input</legend>
+          <label className="field">
+            <span>Input</span>
+            <select
+              value={state.inputId ?? ''}
+              disabled={busy || state.inputs.length === 0}
+              onChange={(event) => actions.selectInput(event.target.value)}
+            >
+              {state.inputs.length === 0 && <option value="">No input</option>}
+              {state.inputs.map((input) => (
+                <option key={input.id} value={input.id}>
+                  {input.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div
+            className="meter"
+            role="meter"
+            aria-label="Input level"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(Math.min(1, state.level) * 100)}
+          >
+            <div style={{ width: `${Math.min(100, Math.sqrt(state.level) * 100)}%` }} />
+          </div>
+          <label className="field">
+            <span>Delay</span>
+            <select
+              value={state.mode}
+              disabled={busy}
+              onChange={(event) => actions.setMode(event.target.value === 'measured' ? 'measured' : 'auto')}
+            >
+              <option value="auto">Automatic, from your playing</option>
+              <option value="measured" disabled={state.measuredMs === null}>
+                {state.measuredMs === null ? 'Measured (not measured yet)' : `Measured, ${state.measuredMs} ms`}
+              </option>
+            </select>
+          </label>
+          <button
+            type="button"
+            className="toggle"
+            disabled={!state.micReady || practising}
+            title="Hold a headphone against the microphone and let the app time its own sound"
+            onClick={measuring ? actions.stop : actions.measure}
+          >
+            {measuring ? 'Stop measuring' : 'Measure delay'}
+          </button>
+        </fieldset>
+        <fieldset className="practice-group">
+          <legend>Scoring</legend>
+          <label className="field inline">
+            <span>Timing</span>
+            <select
+              value={state.leeway}
+              disabled={busy}
+              title="How far from the beat a note may be and still count as on time"
+              onChange={(event) => actions.setLeeway(event.target.value as TimingLeeway)}
+            >
+              {TIMING_LEEWAYS.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={state.liveMarks}
+              onChange={(event) => actions.setLiveMarks(event.target.checked)}
+            />
+            Mark notes while playing
+          </label>
+        </fieldset>
+        <fieldset className="practice-group">
+          <legend>Trainer</legend>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={trainer.enabled}
+              disabled={busy}
+              onChange={(event) => actions.setTrainer({ enabled: event.target.checked })}
+            />
+            Speed trainer
+          </label>
+          {trainer.enabled && (
+            <>
+              <label className="field inline">
+                <span>Move up at</span>
+                <select
+                  value={trainer.threshold}
+                  disabled={busy}
+                  onChange={(event) => actions.setTrainer({ threshold: Number(event.target.value) })}
+                >
+                  {TRAINER_THRESHOLDS.map((value) => (
+                    <option key={value} value={value}>
+                      {percent(value)} played
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field inline">
+                <span>Raise tempo by</span>
+                <select
+                  value={trainer.step}
+                  disabled={busy}
+                  onChange={(event) => actions.setTrainer({ step: Number(event.target.value) })}
+                >
+                  {TRAINER_STEPS.map((value) => (
+                    <option key={value} value={value}>
+                      {percent(value)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          )}
+        </fieldset>
       </div>
 
       {trainer.enabled && !trainer.running && !trainer.status && (

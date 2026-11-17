@@ -441,7 +441,10 @@ export default function App() {
             )}
           </>
         ) : (
-          <span className="brand">RiffMaster</span>
+          <span className="brand">
+            <Icon name="notation" size={20} />
+            RiffMaster
+          </span>
         )}
         <div className="song">
           {ready && (
