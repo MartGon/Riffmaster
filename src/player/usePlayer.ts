@@ -535,16 +535,21 @@ export function usePlayer() {
           putBackSelection()
         }
       }
-      if (!settings || !score) return
-      const pick = (indexes: number[]) => score.tracks.filter((t) => indexes.includes(t.index))
-      const muted = pick(settings.mutedTracks)
-      const solo = pick(settings.soloTracks)
+      if (!score) return
+      // The synthesizer keeps mute and solo by channel across loads: a track
+      // soloed in the last song would leave this one silent, its tracks
+      // being on other channels. So they are cleared first, keeping a
+      // track's mute only where it is restored below.
+      api.player?.resetChannelStates()
+      const pick = (indexes: number[] | undefined) => score.tracks.filter((t) => indexes?.includes(t.index))
+      const muted = pick(settings?.mutedTracks)
+      const solo = pick(settings?.soloTracks)
       if (muted.length > 0) api.changeTrackMute(muted, true)
       if (solo.length > 0) api.changeTrackSolo(solo, true)
       // Every track is set, including those at 100%: the synthesizer keeps
       // a channel's volume across loads, so an old value would linger.
       for (const track of score.tracks) {
-        api.changeTrackVolume([track], settings.volumes?.[track.index] ?? 1)
+        api.changeTrackVolume([track], settings?.volumes?.[track.index] ?? 1)
       }
     })
 

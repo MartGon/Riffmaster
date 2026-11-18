@@ -15,6 +15,8 @@ They need:
 | `library.mjs` | Saved songs, remembered settings, offline use, removing songs |
 | `practice-sideways.mjs` | A practice take with the phone sideways: the bars and the practice panel step aside, a floating Stop and the live count replace them, and Stop brings everything back; held upright the panel stays. Fake microphone; needs the sample tab |
 | `wakelock.mjs` | The screen stays on while a song is open: a wake lock is held in the player, asked for again after the page was in the background, and let go in the library. Uses a file fetched by `formats.mjs` |
+| `countin-cursor.mjs` | The cursor stays on the first beat through a practice take's count-in and moves once the song starts. Fake microphone; needs the sample tab |
+| `sound-level.mjs` | What reaches the speakers while an exercise and a song play, alone and one after the other, including an exercise after a song with a track soloed and one muted. Needs the sample tab |
 | `worklet-scope.mjs` | The cause of silent Play on iPhones: alphaTab's worklet files must run to the end, which needs `_N_E` declared in the worklet first. Built app on port 5198 |
 | `worklet-retry.mjs` | The iPhone playback fix: the first starts of alphaTab's audio worklet are made to fail as they do in Safari's engine, and playback must still start; after 3 failures it says so. Built app on port 5198; uses a file fetched by `formats.mjs` |
 | `sync.mjs` | The sync button and sign-in form: nothing sent before signing in, a wrong password reported. Needs `.env.local` with a Supabase project. The exchange itself is covered by `src/sync/engine.test.ts` |
