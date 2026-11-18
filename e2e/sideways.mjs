@@ -42,10 +42,15 @@ const centred = await page.evaluate(() => {
   const api = window.__riffmaster.api()
   const view = document.querySelector('.viewport').getBoundingClientRect()
   const score = document.querySelector('.score').getBoundingClientRect()
-  const line = api.boundsLookup.staffSystems[0].realBounds
-  return { above: Math.round(score.top + line.y - view.top), below: Math.round(view.bottom - (score.top + line.y + line.h)) }
+  // The staves count, not the tempo and markers drawn above them.
+  const boxes = api.boundsLookup.staffSystems[0].bars.flatMap((bar) =>
+    bar.bars.flatMap((staff) => [staff.visualBounds, ...staff.beats.flatMap((beat) => (beat.notes ?? []).map((note) => note.noteHeadBounds))]),
+  )
+  const top = Math.min(...boxes.map((b) => b.y))
+  const bottom = Math.max(...boxes.map((b) => b.y + b.h))
+  return { above: Math.round(score.top + top - view.top), below: Math.round(view.bottom - (score.top + bottom)) }
 })
-check('the line of tab is centred in the height', Math.abs(centred.above - centred.below) <= 4, JSON.stringify(centred))
+check('the staves are centred in the height', Math.abs(centred.above - centred.below) <= 4, JSON.stringify(centred))
 const scroll1 = await page.$eval('.viewport', (e) => e.scrollLeft)
 await page.waitForTimeout(9000)
 const scroll2 = await page.$eval('.viewport', (e) => ({ left: e.scrollLeft, top: e.scrollTop }))
@@ -76,8 +81,15 @@ const plain = await scrollY()
 check('sideways, the tab does not scroll up and down', plain.overflow === 'hidden', JSON.stringify(plain))
 await page.tap('button[title="Notation"]')
 await page.waitForTimeout(2500)
+// The tempo and markers above may be cut off, but the staves must fit.
 const withNotation = await scrollY()
-check('a tab taller than the screen can still scroll up and down', withNotation.overflow === 'auto' && withNotation.scrollable, JSON.stringify(withNotation))
+check('with notation, staves that fit still do not scroll up and down', withNotation.overflow === 'hidden', JSON.stringify(withNotation))
+await page.setViewportSize({ width: 844, height: 300 })
+await page.waitForTimeout(800)
+const short = await scrollY()
+check('staves taller than the screen can still scroll up and down', short.overflow === 'auto' && short.scrollable, JSON.stringify(short))
+await page.setViewportSize({ width: 844, height: 390 })
+await page.waitForTimeout(800)
 await page.tap('button[title="Notation"]')
 await page.waitForTimeout(2500)
 check('back to tab only, up-and-down scrolling goes away again', (await scrollY()).overflow === 'hidden')

@@ -9,6 +9,7 @@ import { listSections, type SongSection } from '../lib/sections'
 import { barAtPoint } from './barAtPoint'
 import { splitTrackName } from '../lib/trackName'
 import { isDark, onThemeChange } from '../lib/theme'
+import { StaffCursorHandler, systemStaffBand, trimSelection } from './staffBand'
 import { scoreColors } from './theme'
 
 export interface TrackInfo {
@@ -336,6 +337,8 @@ export function usePlayer() {
         enablePlaybackRangeSelection: true,
       },
     })
+    // Cursors as tall as the staves, not as the tempo and markers above them.
+    api.customCursorHandler = new StaffCursorHandler()
     apiRef.current = api
     setApi(api)
     api.metronomeVolume = prefs.metronome ? 1 : 0
@@ -566,6 +569,7 @@ export function usePlayer() {
     let highlight: alphaTab.PlaybackHighlightChangeEventArgs | null = null
     let snapping = false
     api.playbackRangeHighlightChanged.on((args) => {
+      trimSelection(api, element, args.highlightBlocks)
       if (!snapping) highlight = args
     })
     api.beatMouseUp.on(() => {
@@ -612,17 +616,21 @@ export function usePlayer() {
     }
     sideways.addEventListener('change', onTurn)
 
-    // Held sideways the tab is one line, so it only scrolls across. Up and
-    // down stays possible only for a tab taller than the screen (with
-    // standard notation, say), so nothing is cut off.
+    // Held sideways the tab is one line, so it only scrolls across, with its
+    // staves in the middle of the height. What alphaTab draws above and below
+    // them (tempo, section names, dynamics) may be cut off. Up and down stays
+    // possible only when the staves themselves are taller than the screen
+    // (with standard notation, say).
     const wrap = element.parentElement
     const checkFit = () => {
-      // The drawn lines count, not the empty margin alphaTab leaves around them.
-      const systems = api.boundsLookup?.staffSystems ?? []
-      const drawnBottom = Math.max(0, ...systems.map((system) => system.realBounds.y + system.realBounds.h))
-      const offset = wrap ? element.offsetTop : 0
-      const tall = sideways.matches && drawnBottom + offset > viewport.clientHeight + 1
+      const system = api.boundsLookup?.staffSystems[0]
+      const band = sideways.matches && system ? systemStaffBand(system) : null
+      const tall = band !== null && band.h > viewport.clientHeight
       viewport.classList.toggle('scroll-tall', tall)
+      if (!wrap) return
+      // The score's top within the wrap, which moves with it.
+      const centred = band && !tall ? viewport.clientHeight / 2 - element.offsetTop - (band.y + band.h / 2) : null
+      wrap.style.marginTop = centred === null ? '' : `${Math.round(centred)}px`
     }
     api.postRenderFinished.on(checkFit)
     const resized = new ResizeObserver(checkFit)
