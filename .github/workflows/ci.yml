@@ -1,0 +1,27 @@
+# Types, lint, unit tests and the production build on every push and pull request.
+# The browser checks in e2e/ need a copyrighted sample tab and a local browser,
+# so they are still run by hand.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      # Also checks types (tsc) and writes the offline service worker.
+      - run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: 1
