@@ -237,9 +237,16 @@ function workletState(api: alphaTab.AlphaTabApi): string {
 
 let loggerHooked = false
 
-/** Copies alphaTab's own warnings and errors into the `?debug` log. */
+/** Called when alphaTab could not set up the audio worklet that plays the song. */
+const workletFailureListeners = new Set<() => void>()
+
+/**
+ * Watches alphaTab's log: its own warnings and errors go into the `?debug`
+ * log, and a failed audio worklet is reported to the player, which alphaTab
+ * itself only writes to the console.
+ */
 function hookAlphaTabLogger(): void {
-  if (loggerHooked || !debugEnabled()) return
+  if (loggerHooked) return
   loggerHooked = true
   const previous = alphaTab.Logger.log
   const text = (details: unknown[]) => details.map((d) => (typeof d === 'string' ? d : describeError(d))).join(' ')
@@ -256,6 +263,9 @@ function hookAlphaTabLogger(): void {
     error: (category, msg, ...details) => {
       debug(`alphaTab error [${category}] ${msg} ${text(details)}`)
       previous.error(category, msg, ...details)
+      if (category === 'WebAudio' && msg.startsWith('Audio Worklet operation failed')) {
+        for (const listener of workletFailureListeners) listener()
+      }
     },
   }
 }
@@ -558,6 +568,27 @@ export function usePlayer() {
       }
     })
 
+    // On iPhones (Safari's engine) the first Play can fail to set up the
+    // audio worklet: alphaTab's processor registers a moment after its file
+    // has loaded, and Safari only hears of it afterwards, so asking for it
+    // straight away fails with "No ScriptProcessor was registered with this
+    // name". By then it is there, so playback is simply started again.
+    let workletRetries = 0
+    const retryAfterWorkletFailure = () => {
+      if (workletRetries >= 3) {
+        patch({ error: 'Playback could not start on this device. Reload the page to try again.' })
+        return
+      }
+      workletRetries++
+      window.setTimeout(() => {
+        if (api.playerState !== alphaTab.synth.PlayerState.Playing) return
+        debug(`starting playback again after the worklet failed (try ${workletRetries})`)
+        api.pause()
+        api.play()
+      }, 100 * workletRetries)
+    }
+    workletFailureListeners.add(retryAfterWorkletFailure)
+
     let loggedLoad = false
     api.soundFontLoad.on((progress) => {
       if (!loggedLoad || progress.loaded === progress.total) debug(`sound bank ${progress.loaded}/${progress.total} bytes`)
@@ -719,6 +750,7 @@ export function usePlayer() {
       sideways.removeEventListener('change', checkFit)
       api.postRenderFinished.off(checkFit)
       resized.disconnect()
+      workletFailureListeners.delete(retryAfterWorkletFailure)
       api.postRenderFinished.off(showPosition)
       apiRef.current = null
       setApi(null)

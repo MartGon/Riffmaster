@@ -13,6 +13,7 @@ They need:
 |---|---|
 | `player.mjs` | Opening a file, playback, tempo, tracks, loop selection, toggles, at desktop and phone size |
 | `library.mjs` | Saved songs, remembered settings, offline use, removing songs |
+| `worklet-retry.mjs` | The iPhone playback fix: the first starts of alphaTab's audio worklet are made to fail as they do in Safari's engine, and playback must still start; after 3 failures it says so. Built app on port 5198; uses a file fetched by `formats.mjs` |
 | `sync.mjs` | The sync button and sign-in form: nothing sent before signing in, a wrong password reported. Needs `.env.local` with a Supabase project. The exchange itself is covered by `src/sync/engine.test.ts` |
 | `expected.mjs` | Writes `expected.json`: the notes the tab expects per track. Run before `practice.mjs` |
 | `practice.mjs` | Practice mode: a synthesized performance is fed in as the microphone and the app's score is compared with the mistakes that were put in. `node practice.mjs clean\|mistakes\|bass\|all` |
