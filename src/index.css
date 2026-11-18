@@ -232,6 +232,17 @@ button:disabled {
   background: var(--paper);
 }
 
+/* Unless the phone is held sideways (SIDEWAYS in usePlayer.ts), the tab is
+   wrapped to the width of the screen and only scrolls up and down. alphaTab
+   writes a section name at the bar where the section starts, which near the
+   end of a line runs past the edge; Safari's engine (every iPhone browser)
+   then let the tab pan sideways. Pinch-zooming still pans the whole page. */
+@media not all and (max-height: 500px) {
+  .viewport {
+    overflow-x: hidden;
+  }
+}
+
 .score-wrap {
   position: relative;
   padding: 8px 0 40px;
