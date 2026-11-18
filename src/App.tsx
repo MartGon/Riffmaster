@@ -16,6 +16,7 @@ import { Transport } from './components/Transport'
 import { TunerPanel } from './components/TunerPanel'
 import { isAppleTouch, preferPlayback } from './lib/audioSession'
 import { loadPrefs, MAX_VOLUME, savePrefs } from './lib/prefs'
+import { useWakeLock } from './lib/wakeLock'
 import { useEditor } from './editor/useEditor'
 import { useFingering } from './fingering/useFingering'
 import {
@@ -150,6 +151,8 @@ export default function App() {
   const narrow = useMediaQuery(narrowScreen)
   const sideways = useMediaQuery(SIDEWAYS)
   const inPlayer = songId !== null
+  // The screen stays on while a song is open.
+  useWakeLock(inPlayer)
   const ready = inPlayer && state.status === 'ready'
 
   const openNow = useCallback(
