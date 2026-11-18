@@ -228,6 +228,33 @@ function audioState(api: alphaTab.AlphaTabApi): string {
   return `${context.state} @${context.sampleRate}Hz t=${context.currentTime.toFixed(2)}`
 }
 
+const preparedContexts = new WeakSet<BaseAudioContext>()
+
+/**
+ * Gets the audio worklet ready for alphaTab's code. Next.js ends each script
+ * file of the app with `_N_E = ...`, which also runs when alphaTab loads its
+ * files into the worklet. There `_N_E` was never declared, and worklet code
+ * is strict, so that line throws. Chromium registers alphaTab's processor
+ * anyway; Safari's engine (every browser on an iPhone) does not, and Play
+ * then does nothing ("Can't find variable: _N_E"). Declaring it first, in a
+ * module of its own, makes the line harmless. Worklet modules share one
+ * global scope, so it only has to be added once per audio context, before
+ * the first Play.
+ */
+function prepareWorkletScope(api: alphaTab.AlphaTabApi): void {
+  const context = audioContextOf(api)
+  if (!context?.audioWorklet || preparedContexts.has(context)) return
+  preparedContexts.add(context)
+  const url = URL.createObjectURL(new Blob(['globalThis._N_E = globalThis._N_E;'], { type: 'text/javascript' }))
+  context.audioWorklet
+    .addModule(url)
+    .then(
+      () => debug('worklet scope prepared'),
+      (error) => debug(`worklet scope could not be prepared: ${describeError(error)}`),
+    )
+    .finally(() => URL.revokeObjectURL(url))
+}
+
 /** For the `?debug` log: whether alphaTab has built its audio worklet, which it does on the first Play. */
 function workletState(api: alphaTab.AlphaTabApi): string {
   const output = api.player?.output as { _worklet?: unknown } | undefined
@@ -414,6 +441,7 @@ export function usePlayer() {
     })
     // Cursors as tall as the staves, not as the tempo and markers above them.
     api.customCursorHandler = new StaffCursorHandler()
+    prepareWorkletScope(api)
     apiRef.current = api
     setApi(api)
     api.metronomeVolume = prefs.metronome ? 1 : 0
@@ -569,11 +597,9 @@ export function usePlayer() {
       }
     })
 
-    // On iPhones (Safari's engine) the first Play can fail to set up the
-    // audio worklet: alphaTab's processor registers a moment after its file
-    // has loaded, and Safari only hears of it afterwards, so asking for it
-    // straight away fails with "No ScriptProcessor was registered with this
-    // name". By then it is there, so playback is simply started again.
+    // Should alphaTab still fail to set up its audio worklet (see
+    // prepareWorkletScope for the known cause), playback is started again a
+    // few times, then the player says it could not start.
     let workletRetries = 0
     const retryAfterWorkletFailure = () => {
       if (workletRetries >= 3) {
@@ -597,6 +623,7 @@ export function usePlayer() {
       patch({ soundProgress: progress.total > 0 ? progress.loaded / progress.total : 0 })
     })
     api.playerReady.on(() => {
+      prepareWorkletScope(api)
       debug(`player ready, audio ${audioState(api)}`)
       patch({ canPlay: true, soundProgress: 1 })
       startOfflineStore()
@@ -851,6 +878,7 @@ export function usePlayer() {
           debug(`play tapped: ready=${api.isReadyForPlayback} state=${api.playerState} audio ${audioState(api)}`)
           window.setTimeout(() => debug(`  0.5 s later: state=${api.playerState} tick=${api.tickPosition} audio ${audioState(api)}, ${workletState(api)}, ${level()}`), 500)
           window.setTimeout(() => debug(`  2 s later: state=${api.playerState} tick=${api.tickPosition} audio ${audioState(api)}, ${workletState(api)}, ${level()}`), 2000)
+          prepareWorkletScope(api)
           const asleep = wakeAudio(api)
           // "Playing" with the audio asleep means nothing could be heard:
           // waking it is what the tap was for, not pausing.
