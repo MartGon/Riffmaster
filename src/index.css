@@ -1658,6 +1658,35 @@ input[type='range'] {
 
 /* Dialogs */
 
+.sync-button.sync-syncing svg {
+  animation: sync-spin 1.2s linear infinite;
+}
+
+.sync-button.sync-error {
+  color: var(--danger-text);
+}
+
+@keyframes sync-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sync-button.sync-syncing svg {
+    animation: none;
+  }
+}
+
+.dialog-intro p {
+  margin: 0 0 8px;
+}
+
+.sync-status {
+  font-weight: 600;
+  color: var(--text);
+}
+
 .dialog {
   width: min(440px, calc(100vw - 32px));
   max-height: calc(100dvh - 32px);

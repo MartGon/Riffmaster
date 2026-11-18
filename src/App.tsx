@@ -9,6 +9,7 @@ import { LibraryView } from './components/LibraryView'
 import { NewTabDialog } from './components/NewTabDialog'
 import { PracticePanel } from './components/PracticePanel'
 import { SectionList } from './components/SectionList'
+import { SyncButton } from './components/SyncButton'
 import { ThemeToggle } from './components/ThemeToggle'
 import { TrackList } from './components/TrackList'
 import { Transport } from './components/Transport'
@@ -32,6 +33,7 @@ import type { Song, SongSettings, TakeRecord } from './library/types'
 import { useLibrary } from './library/useLibrary'
 import { SIDEWAYS, usePlayer } from './player/usePlayer'
 import { type NewTake, usePractice } from './practice/usePractice'
+import { startSync } from './sync/sync'
 import { useTuner } from './tuner/useTuner'
 
 const ACCEPTED = '.gp,.gp3,.gp4,.gp5,.gpx,.musicxml,.mxl,.xml,.capx'
@@ -89,6 +91,9 @@ export default function App() {
       () => {},
     )
   }, [])
+  // Sync is optional and runs in the background; changes from other devices refresh the list.
+  const refreshLibrary = library.refresh
+  useEffect(() => startSync(() => void refreshLibrary()), [refreshLibrary])
   const practice = usePractice(api, state, marksRef, { setSpeed: actions.setSpeed, onTake })
   const editLayerRef = useRef<HTMLDivElement>(null)
   /** Whether the open song was edited and saved, so its first version can be restored. */
@@ -455,6 +460,7 @@ export default function App() {
             </>
           )}
         </div>
+        <SyncButton />
         <ThemeToggle />
         <input
           ref={fileInput}

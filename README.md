@@ -23,7 +23,9 @@ offline once a song has been opened.
 - **Built-in exercises:** scales in five positions and any key, spider and other finger
   exercises, arpeggios and chord changes.
 - **Library:** songs are stored in the browser (IndexedDB), with their settings and
-  practice history. Nothing is sent to a server.
+  practice history, and work offline.
+- **Sync (optional):** sign in to keep the library the same on several devices, through
+  your own Supabase project. Without it nothing is sent to a server.
 
 Accepted files: Guitar Pro 3 to 8 (`.gp3`, `.gp4`, `.gp5`, `.gpx`, `.gp`), MusicXML
 (`.xml`, `.musicxml`, compressed `.mxl`) and Capella (`.capx`). Tracks without strings,
@@ -64,6 +66,25 @@ npm run dev:phone     # every time: serves the app over HTTPS on port 5180
 
 `npm run phone:setup` prints an address to open on the phone, with the steps to install
 and trust the certificate. Then open `https://<computer's address>:5180`.
+
+### Sync between devices (optional)
+
+Sync uses a Supabase project of your own. Each device keeps its full library and works
+offline; changes are exchanged whenever it is signed in and online.
+
+1. In the Supabase dashboard, run [`supabase/schema.sql`](supabase/schema.sql) in the
+   SQL Editor. It makes the tables, the access rules and a private `tabs` bucket.
+2. Under **Authentication → Users**, add a user with **Auto Confirm User** ticked, then
+   turn off **Allow new users to sign up**.
+3. Put the project URL and its publishable key in `.env.local`, and restart the dev server:
+   ```
+   NEXT_PUBLIC_SUPABASE_URL=https://<project>.supabase.co
+   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+   ```
+   Never the secret or service_role key: these values end up in the app.
+4. Sign in with the cloud button in the top bar, on each device.
+
+Builds without these values have no sync button.
 
 ## Scripts
 

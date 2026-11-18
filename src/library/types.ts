@@ -37,6 +37,11 @@ export interface Song {
   lastOpenedAt: number
   deletedAt: number | null
   settings: SongSettings
+  /**
+   * Set on a deleted song that was the same file as another song added on
+   * another device: the id of the song kept instead. Its practice takes move there.
+   */
+  mergedInto?: string
 }
 
 /** How one bar went in a practice take. */

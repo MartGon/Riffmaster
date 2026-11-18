@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@coderline/alphatab": "^1.9.0",
+    "@supabase/supabase-js": "^2.119.0",
     "idb": "^8.0.4",
     "next": "^16.4.6",
     "pitchy": "^4.1.0",

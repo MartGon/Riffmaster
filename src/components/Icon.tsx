@@ -126,6 +126,34 @@ const paths = {
       <path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" stroke="none" />
     </>
   ),
+  cloud: <path d="M7 18.5a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 18 9a4.5 4.5 0 0 1-.5 9.5z" />,
+  /** Synced: a cloud with a tick. */
+  cloudDone: (
+    <>
+      <path d="M7 18.5a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 18 9a4.5 4.5 0 0 1-.5 9.5z" />
+      <path d="M9.5 13.5l2 2 3.5-3.5" />
+    </>
+  ),
+  cloudOff: (
+    <>
+      <path d="M7 18.5a4.5 4.5 0 0 1-.6-8.96 6 6 0 0 1 1.7-2.84M10.6 4.6A6 6 0 0 1 18 9a4.5 4.5 0 0 1 2.6 8.1M17.5 18.5H7" />
+      <path d="M3 3l18 18" />
+    </>
+  ),
+  cloudAlert: (
+    <>
+      <path d="M7 18.5a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 18 9a4.5 4.5 0 0 1-.5 9.5z" />
+      <path d="M12 10v3M12 15.8v.2" />
+    </>
+  ),
+  /** Arrows round in a circle: syncing. */
+  syncing: (
+    <>
+      <path d="M20 12a8 8 0 0 1-14.2 5" />
+      <path d="M4 12a8 8 0 0 1 14.2-5" />
+      <path d="M18.5 3v4h-4M5.5 21v-4h4" />
+    </>
+  ),
   close: <path d="M6 6l12 12M18 6L6 18" />,
   minus: <path d="M5 12h14" />,
   plus: <path d="M12 5v14M5 12h14" />,

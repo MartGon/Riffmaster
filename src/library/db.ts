@@ -2,10 +2,56 @@ import { randomId, sha256 } from '../lib/ids'
 import { type DBSchema, type IDBPDatabase, openDB } from 'idb'
 import { defaultSongSettings, type Song, type SongSettings, type TakeRecord } from './types'
 
-interface LibrarySchema extends DBSchema {
+/**
+ * A change made on this device that sync has not sent yet. Keyed by
+ * `song:<id>` or `take:<id>`; the current record is read when it is sent,
+ * and a take that is no longer there is sent as removed.
+ */
+export interface Pending {
+  /** Changes with every new change, so an entry is only cleared if nothing changed while it was sent. */
+  stamp: string
+  /** For takes: the song the take belongs to. */
+  songId?: string
+}
+
+export interface LibrarySchema extends DBSchema {
   songs: { key: string; value: Song; indexes: { hash: string } }
   files: { key: string; value: ArrayBuffer }
   takes: { key: string; value: TakeRecord; indexes: { songId: string } }
+  outbox: { key: string; value: Pending }
+  /** What sync remembers between runs: who is signed in, how far it has read, which files it sent. */
+  syncMeta: { key: string; value: unknown }
+}
+
+/** The outbox store, in whichever transaction is writing to it. */
+interface Outbox {
+  put(value: Pending, key: string): Promise<string>
+}
+
+let stampCount = 0
+function stamp(): string {
+  return `${Date.now()}.${++stampCount}`
+}
+
+/** Notes a change for sync to send. Changes made by sync itself from another device are not noted. */
+export function markSong(outbox: Outbox, id: string): Promise<string> {
+  return outbox.put({ stamp: stamp() }, `song:${id}`)
+}
+
+export function markTake(outbox: Outbox, take: Pick<TakeRecord, 'id' | 'songId'>): Promise<string> {
+  return outbox.put({ stamp: stamp(), songId: take.songId }, `take:${take.id}`)
+}
+
+const changeListeners = new Set<() => void>()
+
+/** Calls `listener` after each change on this device that sync should send. */
+export function onLocalChange(listener: () => void): () => void {
+  changeListeners.add(listener)
+  return () => changeListeners.delete(listener)
+}
+
+function changed(): void {
+  for (const listener of changeListeners) listener()
 }
 
 let dbPromise: Promise<IDBPDatabase<LibrarySchema>> | null = null
@@ -20,9 +66,9 @@ export function setBlockedHandler(handler: (() => void) | null): void {
   onBlocked = handler
 }
 
-function db(): Promise<IDBPDatabase<LibrarySchema>> {
-  dbPromise ??= openDB<LibrarySchema>('riffmaster', 2, {
-    upgrade(database, oldVersion) {
+export function db(): Promise<IDBPDatabase<LibrarySchema>> {
+  dbPromise ??= openDB<LibrarySchema>('riffmaster', 3, {
+    async upgrade(database, oldVersion, _newVersion, transaction) {
       if (oldVersion < 1) {
         const songs = database.createObjectStore('songs', { keyPath: 'id' })
         songs.createIndex('hash', 'hash')
@@ -31,6 +77,13 @@ function db(): Promise<IDBPDatabase<LibrarySchema>> {
       if (oldVersion < 2) {
         const takes = database.createObjectStore('takes', { keyPath: 'id' })
         takes.createIndex('songId', 'songId')
+      }
+      if (oldVersion < 3) {
+        // Everything already in the library is still to be sent.
+        const outbox = database.createObjectStore('outbox')
+        database.createObjectStore('syncMeta')
+        for (const song of await transaction.objectStore('songs').getAll()) await markSong(outbox, song.id)
+        for (const take of await transaction.objectStore('takes').getAll()) await markTake(outbox, take)
       }
     },
     blocked() {
@@ -75,8 +128,10 @@ export interface NewSong {
 export async function addSong(input: NewSong, now = Date.now()): Promise<Song> {
   const hash = await sha256(input.data)
   const database = await db()
-  const tx = database.transaction(['songs', 'files'], 'readwrite')
-  const existing = await tx.objectStore('songs').index('hash').get(hash)
+  const tx = database.transaction(['songs', 'files', 'outbox'], 'readwrite')
+  const existing = (await tx.objectStore('songs').index('hash').getAll(hash)).sort(
+    (a, b) => Number(a.deletedAt !== null) - Number(b.deletedAt !== null),
+  )[0]
   let song: Song
   if (existing) {
     song = { ...existing, deletedAt: null, updatedAt: now, lastOpenedAt: now }
@@ -95,9 +150,12 @@ export async function addSong(input: NewSong, now = Date.now()): Promise<Song> {
       settings: { ...defaultSongSettings },
     }
   }
+  delete song.mergedInto
   await tx.objectStore('songs').put(song)
   await tx.objectStore('files').put(input.data, song.id)
+  await markSong(tx.objectStore('outbox'), song.id)
   await tx.done
+  changed()
   return song
 }
 
@@ -127,16 +185,21 @@ export async function saveSongSettings(
   now = Date.now(),
 ): Promise<void> {
   const database = await db()
-  const tx = database.transaction('songs', 'readwrite')
-  const song = await tx.store.get(id)
-  if (song && song.deletedAt === null) {
-    await tx.store.put({ ...song, settings, updatedAt: now })
+  const tx = database.transaction(['songs', 'outbox'], 'readwrite')
+  const songs = tx.objectStore('songs')
+  const song = await songs.get(id)
+  if (song && song.deletedAt === null && JSON.stringify(song.settings) !== JSON.stringify(settings)) {
+    await songs.put({ ...song, settings, updatedAt: now })
+    await markSong(tx.objectStore('outbox'), id)
+    await tx.done
+    changed()
+    return
   }
   await tx.done
 }
 
 /** Where the file a song had before it was first edited is kept. */
-function originalKey(id: string): string {
+export function originalKey(id: string): string {
   return `original:${id}`
 }
 
@@ -153,7 +216,7 @@ export async function saveEditedSong(
 ): Promise<Song | null> {
   const hash = await sha256(data)
   const database = await db()
-  const tx = database.transaction(['songs', 'files'], 'readwrite')
+  const tx = database.transaction(['songs', 'files', 'outbox'], 'readwrite')
   const songs = tx.objectStore('songs')
   const files = tx.objectStore('files')
   const song = await songs.get(id)
@@ -168,7 +231,9 @@ export async function saveEditedSong(
   await files.put(data, id)
   const saved: Song = { ...song, ...info, size: data.byteLength, hash, updatedAt: now }
   await songs.put(saved)
+  await markSong(tx.objectStore('outbox'), id)
   await tx.done
+  changed()
   return saved
 }
 
@@ -191,7 +256,7 @@ export async function restoreOriginal(
   if (!original) return null
   const info = describe(original)
   const hash = await sha256(original)
-  const tx = (await db()).transaction(['songs', 'files'], 'readwrite')
+  const tx = (await db()).transaction(['songs', 'files', 'outbox'], 'readwrite')
   const song = await tx.objectStore('songs').get(id)
   if (!song || song.deletedAt !== null) {
     await tx.done
@@ -202,30 +267,40 @@ export async function restoreOriginal(
   await tx
     .objectStore('songs')
     .put({ ...song, ...info, size: original.byteLength, hash, updatedAt: now })
+  await markSong(tx.objectStore('outbox'), id)
   await tx.done
+  changed()
   return original
 }
 
 /** Removes the file and the practice history, and leaves a deletion marker on the song record. */
 export async function deleteSong(id: string, now = Date.now()): Promise<void> {
   const database = await db()
-  const tx = database.transaction(['songs', 'files', 'takes'], 'readwrite')
+  const tx = database.transaction(['songs', 'files', 'takes', 'outbox'], 'readwrite')
+  const outbox = tx.objectStore('outbox')
   const song = await tx.objectStore('songs').get(id)
   if (song) {
     await tx.objectStore('songs').put({ ...song, deletedAt: now, updatedAt: now })
+    await markSong(outbox, id)
   }
   await tx.objectStore('files').delete(id)
   await tx.objectStore('files').delete(originalKey(id))
-  for (const key of await tx.objectStore('takes').index('songId').getAllKeys(id)) {
-    await tx.objectStore('takes').delete(key)
+  for (const take of await tx.objectStore('takes').index('songId').getAll(id)) {
+    await tx.objectStore('takes').delete(take.id)
+    await markTake(outbox, take)
   }
   await tx.done
+  changed()
 }
 
 /** Records a finished practice take. */
 export async function addTake(take: Omit<TakeRecord, 'id'>): Promise<TakeRecord> {
   const record: TakeRecord = { ...take, id: randomId() }
-  await (await db()).put('takes', record)
+  const tx = (await db()).transaction(['takes', 'outbox'], 'readwrite')
+  await tx.objectStore('takes').put(record)
+  await markTake(tx.objectStore('outbox'), record)
+  await tx.done
+  changed()
   return record
 }
 
@@ -237,11 +312,15 @@ export async function listTakes(songId: string): Promise<TakeRecord[]> {
 
 /** Forgets a song's practice takes for one track. */
 export async function clearTakes(songId: string, trackIndex: number): Promise<void> {
-  const tx = (await db()).transaction('takes', 'readwrite')
-  for (const take of await tx.store.index('songId').getAll(songId)) {
-    if (take.trackIndex === trackIndex) await tx.store.delete(take.id)
+  const tx = (await db()).transaction(['takes', 'outbox'], 'readwrite')
+  const takes = tx.objectStore('takes')
+  for (const take of await takes.index('songId').getAll(songId)) {
+    if (take.trackIndex !== trackIndex) continue
+    await takes.delete(take.id)
+    await markTake(tx.objectStore('outbox'), take)
   }
   await tx.done
+  changed()
 }
 
 export interface SongPractice {
