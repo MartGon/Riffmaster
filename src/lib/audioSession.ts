@@ -1,5 +1,3 @@
-import { debug } from './debugLog'
-
 /**
  * Makes the song audible on an iPhone whose silent switch is on.
  *
@@ -74,10 +72,7 @@ function keepMediaSessionAlive(): void {
 export function preferPlayback(): void {
   const session = audioSession()
   if (session) {
-    if (session.type !== 'play-and-record' && session.type !== 'playback') {
-      debug(`audio session ${session.type} -> playback`)
-      session.type = 'playback'
-    }
+    if (session.type !== 'play-and-record' && session.type !== 'playback') session.type = 'playback'
     return
   }
   if (isAppleTouch()) keepMediaSessionAlive()

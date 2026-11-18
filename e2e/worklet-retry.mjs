@@ -19,8 +19,10 @@ for (const failures of [1, 2, 4]) {
   await context.addInitScript((count) => {
     const Real = window.AudioWorkletNode
     let left = count
+    window.__workletAttempts = 0
     window.AudioWorkletNode = class extends Real {
       constructor(ctx, name, options) {
+        if (name === 'alphatab') window.__workletAttempts++
         if (name === 'alphatab' && left > 0) {
           left--
           throw new DOMException('No ScriptProcessor was registered with this name', 'InvalidStateError')
@@ -30,7 +32,7 @@ for (const failures of [1, 2, 4]) {
     }
   }, failures)
   const page = await context.newPage()
-  await page.goto(`${url}?debug`)
+  await page.goto(url)
   await page.waitForSelector('.library')
   await page.setInputFiles('input[type=file]', file)
   await page.waitForFunction(() => !document.querySelector('.play')?.disabled, null, { timeout: 30000 })
@@ -38,8 +40,7 @@ for (const failures of [1, 2, 4]) {
   const moved = await page
     .waitForFunction(() => !['0:00', undefined].includes(document.querySelector('.seek .time')?.textContent), null, { timeout: 5000 })
     .then(() => true, () => false)
-  const log = await page.$eval('.debug-panel pre', (e) => e.textContent)
-  const retries = (log.match(/starting playback again/g) ?? []).length
+  const retries = (await page.evaluate(() => window.__workletAttempts)) - 1
   const notice = await page.$eval('.error[role=alert]', (e) => e.textContent).catch(() => null)
   if (failures <= 3) {
     check(`plays after ${failures} failed start${failures > 1 ? 's' : ''} of the audio worklet`, moved && retries === failures, `${retries} retries`)
@@ -47,7 +48,6 @@ for (const failures of [1, 2, 4]) {
   } else {
     check('gives up after 3 tries and says so', !moved && retries === 3 && /could not start/.test(notice ?? ''), notice ?? 'no message')
   }
-  if (process.env.SHOW_LOG) console.log(log)
   await context.close()
 }
 await browser.close()

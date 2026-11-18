@@ -1,4 +1,3 @@
-import { debug, debugEnabled, describeError, installLevelMeter, level } from '../lib/debugLog'
 import * as alphaTab from '@coderline/alphatab'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { clampSpeed } from '../lib/format'
@@ -215,19 +214,6 @@ function audioContextOf(api: alphaTab.AlphaTabApi): AudioContext | null {
  * microphone opening and closing); it can only be resumed from a tap.
  * Returns whether it was asleep.
  */
-const watchedContexts = new WeakSet<AudioContext>()
-
-/** For the `?debug` log: the audio context's state, and its changes from now on. */
-function audioState(api: alphaTab.AlphaTabApi): string {
-  const context = audioContextOf(api)
-  if (!context) return 'no context'
-  if (!watchedContexts.has(context)) {
-    watchedContexts.add(context)
-    context.addEventListener('statechange', () => debug(`audio context -> ${context.state}`))
-  }
-  return `${context.state} @${context.sampleRate}Hz t=${context.currentTime.toFixed(2)}`
-}
-
 const preparedContexts = new WeakSet<BaseAudioContext>()
 
 /**
@@ -246,20 +232,11 @@ function prepareWorkletScope(api: alphaTab.AlphaTabApi): void {
   if (!context?.audioWorklet || preparedContexts.has(context)) return
   preparedContexts.add(context)
   const url = URL.createObjectURL(new Blob(['globalThis._N_E = globalThis._N_E;'], { type: 'text/javascript' }))
+  // Should it fail, alphaTab's own attempt reports it, and Play is retried.
   context.audioWorklet
     .addModule(url)
-    .then(
-      () => debug('worklet scope prepared'),
-      (error) => debug(`worklet scope could not be prepared: ${describeError(error)}`),
-    )
+    .catch(() => {})
     .finally(() => URL.revokeObjectURL(url))
-}
-
-/** For the `?debug` log: whether alphaTab has built its audio worklet, which it does on the first Play. */
-function workletState(api: alphaTab.AlphaTabApi): string {
-  const output = api.player?.output as { _worklet?: unknown } | undefined
-  if (!output || !('_worklet' in output)) return 'script processor'
-  return output._worklet ? 'worklet built' : 'no worklet yet'
 }
 
 let loggerHooked = false
@@ -268,44 +245,24 @@ let loggerHooked = false
 const workletFailureListeners = new Set<() => void>()
 
 /**
- * Watches alphaTab's log: its own warnings and errors go into the `?debug`
- * log, and a failed audio worklet is reported to the player, which alphaTab
- * itself only writes to the console.
+ * Watches alphaTab's log for a failed audio worklet, which alphaTab itself
+ * only writes to the console, and reports it to the player.
  */
 function hookAlphaTabLogger(): void {
   if (loggerHooked) return
   loggerHooked = true
   const previous = alphaTab.Logger.log
-  const text = (details: unknown[]) => details.map((d) => (typeof d === 'string' ? d : describeError(d))).join(' ')
   alphaTab.Logger.log = {
     debug: (category, msg, ...details) => previous.debug(category, msg, ...details),
-    info: (category, msg, ...details) => {
-      debug(`alphaTab info [${category}] ${msg} ${text(details)}`)
-      previous.info(category, msg, ...details)
-    },
-    warning: (category, msg, ...details) => {
-      debug(`alphaTab warning [${category}] ${msg} ${text(details)}`)
-      previous.warning(category, msg, ...details)
-    },
+    info: (category, msg, ...details) => previous.info(category, msg, ...details),
+    warning: (category, msg, ...details) => previous.warning(category, msg, ...details),
     error: (category, msg, ...details) => {
-      debug(`alphaTab error [${category}] ${msg} ${text(details)}`)
       previous.error(category, msg, ...details)
       if (category === 'WebAudio' && msg.startsWith('Audio Worklet operation failed')) {
         for (const listener of workletFailureListeners) listener()
       }
     },
   }
-}
-
-/**
- * With `?debug&output=sp`, plays through the older ScriptProcessor output
- * instead of an audio worklet, to tell apart problems with either.
- */
-function debugOutputMode(): alphaTab.PlayerOutputMode | undefined {
-  if (!debugEnabled()) return undefined
-  return new URLSearchParams(window.location.search).get('output') === 'sp'
-    ? alphaTab.PlayerOutputMode.WebAudioScriptProcessor
-    : undefined
 }
 
 function wakeAudio(api: alphaTab.AlphaTabApi): boolean {
@@ -417,8 +374,6 @@ export function usePlayer() {
     const base = '/'
     const prefs = loadPrefs()
     hookAlphaTabLogger()
-    installLevelMeter()
-    const outputMode = debugOutputMode()
     const api = new alphaTab.AlphaTabApi(element, {
       // Note positions are needed to draw practice marks next to the notes.
       core: { fontDirectory: `${base}font/`, includeNoteBounds: true },
@@ -436,7 +391,6 @@ export function usePlayer() {
         scrollOffsetY: -24,
         enableCursor: true,
         enablePlaybackRangeSelection: true,
-        ...(outputMode === undefined ? {} : { outputMode }),
       },
     })
     // Cursors as tall as the staves, not as the tempo and markers above them.
@@ -455,9 +409,7 @@ export function usePlayer() {
     // address, then the small bank that comes with alphaTab is used.
     let soundFailures = 0
     let soundRetry = 0
-    debug(`player created: output=${api.settings.player.outputMode} bank=${SOUND_BANK}`)
-    api.player?.soundFontLoadFailed.on((error) => {
-      debug(`sound bank failed: ${describeError(error)}`)
+    api.player?.soundFontLoadFailed.on(() => {
       soundFailures++
       const bank = soundFailures === 1 ? `${SOUND_BANK}?retry=1` : SMALL_SOUND_BANK
       if (soundFailures > 2 || (soundFailures === 2 && SOUND_BANK === SMALL_SOUND_BANK)) {
@@ -469,7 +421,6 @@ export function usePlayer() {
     })
 
     api.error.on((error) => {
-      debug(`alphaTab error: ${describeError(error)}`)
       // A failed sound download is handled above.
       if (error instanceof alphaTab.FileLoadError) return
       // A failed load leaves the previous score (if any) in place. alphaTab
@@ -609,22 +560,17 @@ export function usePlayer() {
       workletRetries++
       window.setTimeout(() => {
         if (api.playerState !== alphaTab.synth.PlayerState.Playing) return
-        debug(`starting playback again after the worklet failed (try ${workletRetries})`)
         api.pause()
         api.play()
       }, 100 * workletRetries)
     }
     workletFailureListeners.add(retryAfterWorkletFailure)
 
-    let loggedLoad = false
     api.soundFontLoad.on((progress) => {
-      if (!loggedLoad || progress.loaded === progress.total) debug(`sound bank ${progress.loaded}/${progress.total} bytes`)
-      loggedLoad = true
       patch({ soundProgress: progress.total > 0 ? progress.loaded / progress.total : 0 })
     })
     api.playerReady.on(() => {
       prepareWorkletScope(api)
-      debug(`player ready, audio ${audioState(api)}`)
       patch({ canPlay: true, soundProgress: 1 })
       startOfflineStore()
     })
@@ -653,7 +599,6 @@ export function usePlayer() {
       }, 500)
     }
     api.playerStateChanged.on((args) => {
-      debug(`player state -> ${args.state === alphaTab.synth.PlayerState.Playing ? 'playing' : 'paused'}${args.stopped ? ' (stopped)' : ''}, audio ${audioState(api)}`)
       const playing = args.state === alphaTab.synth.PlayerState.Playing
       if (playing) watchStall()
       else window.clearInterval(stallTimer)
@@ -875,9 +820,6 @@ export function usePlayer() {
       dismissError: () => setState((s) => ({ ...s, error: null })),
       playPause: () =>
         withApi((api) => {
-          debug(`play tapped: ready=${api.isReadyForPlayback} state=${api.playerState} audio ${audioState(api)}`)
-          window.setTimeout(() => debug(`  0.5 s later: state=${api.playerState} tick=${api.tickPosition} audio ${audioState(api)}, ${workletState(api)}, ${level()}`), 500)
-          window.setTimeout(() => debug(`  2 s later: state=${api.playerState} tick=${api.tickPosition} audio ${audioState(api)}, ${workletState(api)}, ${level()}`), 2000)
           prepareWorkletScope(api)
           const asleep = wakeAudio(api)
           // "Playing" with the audio asleep means nothing could be heard:
