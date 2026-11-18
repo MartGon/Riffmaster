@@ -1,3 +1,4 @@
+import { debug, describeError } from '../lib/debugLog'
 import * as alphaTab from '@coderline/alphatab'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { clampSpeed } from '../lib/format'
@@ -214,6 +215,19 @@ function audioContextOf(api: alphaTab.AlphaTabApi): AudioContext | null {
  * microphone opening and closing); it can only be resumed from a tap.
  * Returns whether it was asleep.
  */
+const watchedContexts = new WeakSet<AudioContext>()
+
+/** For the `?debug` log: the audio context's state, and its changes from now on. */
+function audioState(api: alphaTab.AlphaTabApi): string {
+  const context = audioContextOf(api)
+  if (!context) return 'no context'
+  if (!watchedContexts.has(context)) {
+    watchedContexts.add(context)
+    context.addEventListener('statechange', () => debug(`audio context -> ${context.state}`))
+  }
+  return `${context.state} @${context.sampleRate}Hz t=${context.currentTime.toFixed(2)}`
+}
+
 function wakeAudio(api: alphaTab.AlphaTabApi): boolean {
   const context = audioContextOf(api)
   if (!context || context.state === 'running' || context.state === 'closed') return false
@@ -356,7 +370,9 @@ export function usePlayer() {
     // address, then the small bank that comes with alphaTab is used.
     let soundFailures = 0
     let soundRetry = 0
-    api.player?.soundFontLoadFailed.on(() => {
+    debug(`player created: output=${api.settings.player.outputMode} bank=${SOUND_BANK}`)
+    api.player?.soundFontLoadFailed.on((error) => {
+      debug(`sound bank failed: ${describeError(error)}`)
       soundFailures++
       const bank = soundFailures === 1 ? `${SOUND_BANK}?retry=1` : SMALL_SOUND_BANK
       if (soundFailures > 2 || (soundFailures === 2 && SOUND_BANK === SMALL_SOUND_BANK)) {
@@ -368,6 +384,7 @@ export function usePlayer() {
     })
 
     api.error.on((error) => {
+      debug(`alphaTab error: ${describeError(error)}`)
       // A failed sound download is handled above.
       if (error instanceof alphaTab.FileLoadError) return
       // A failed load leaves the previous score (if any) in place. alphaTab
@@ -495,10 +512,14 @@ export function usePlayer() {
       }
     })
 
+    let loggedLoad = false
     api.soundFontLoad.on((progress) => {
+      if (!loggedLoad || progress.loaded === progress.total) debug(`sound bank ${progress.loaded}/${progress.total} bytes`)
+      loggedLoad = true
       patch({ soundProgress: progress.total > 0 ? progress.loaded / progress.total : 0 })
     })
     api.playerReady.on(() => {
+      debug(`player ready, audio ${audioState(api)}`)
       patch({ canPlay: true, soundProgress: 1 })
       startOfflineStore()
     })
@@ -527,6 +548,7 @@ export function usePlayer() {
       }, 500)
     }
     api.playerStateChanged.on((args) => {
+      debug(`player state -> ${args.state === alphaTab.synth.PlayerState.Playing ? 'playing' : 'paused'}${args.stopped ? ' (stopped)' : ''}, audio ${audioState(api)}`)
       const playing = args.state === alphaTab.synth.PlayerState.Playing
       if (playing) watchStall()
       else window.clearInterval(stallTimer)
@@ -747,6 +769,8 @@ export function usePlayer() {
       dismissError: () => setState((s) => ({ ...s, error: null })),
       playPause: () =>
         withApi((api) => {
+          debug(`play tapped: ready=${api.isReadyForPlayback} state=${api.playerState} audio ${audioState(api)}`)
+          window.setTimeout(() => debug(`  0.5 s later: state=${api.playerState} tick=${api.tickPosition} audio ${audioState(api)}`), 500)
           const asleep = wakeAudio(api)
           // "Playing" with the audio asleep means nothing could be heard:
           // waking it is what the tap was for, not pausing.

@@ -1,6 +1,7 @@
 import * as alphaTab from '@coderline/alphatab'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { EditorPanel } from './components/EditorPanel'
+import { DebugPanel } from './components/DebugPanel'
 import { ExerciseDialog } from './components/ExerciseDialog'
 import { ChoiceDialog } from './components/FormDialog'
 import { Fretboard } from './components/Fretboard'
@@ -760,6 +761,7 @@ export default function App() {
       )}
 
       {dragging && <div className="drop-overlay">Drop to add to your library</div>}
+      <DebugPanel />
     </div>
   )
 }
