@@ -216,6 +216,42 @@ function describeMicError(error: unknown): string {
 }
 
 /**
+ * Resolves once the player has stopped and moved to `tick` and alphaTab has
+ * drawn the cursor there, which it does on the frames after the player
+ * reports the move. Gives up waiting after a moment, should no report come.
+ */
+function seekSettled(api: alphaTab.AlphaTabApi, tick: number): Promise<void> {
+  return new Promise((resolve) => {
+    let done = false
+    let stopped = false
+    const settle = () => {
+      if (done) return
+      done = true
+      window.clearTimeout(timer)
+      api.playerStateChanged.off(onState)
+      api.playerPositionChanged.off(onMove)
+      // Two frames on, the cursor is in place.
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+    }
+    // The player reports its stop before the move, and other moves come and
+    // go meanwhile; only the move reported after the stop is the one asked for.
+    // alphaTab hands a new listener the current state and position at once;
+    // those are not reports of this stop and move.
+    let listening = false
+    const onState = (args: { state: number }) => {
+      if (listening && args.state !== alphaTab.synth.PlayerState.Playing) stopped = true
+    }
+    const onMove = (args: { isSeek: boolean; currentTick: number }) => {
+      if (listening && stopped && args.isSeek && Math.abs(args.currentTick - tick) < 5) settle()
+    }
+    const timer = window.setTimeout(settle, 500)
+    api.playerStateChanged.on(onState)
+    api.playerPositionChanged.on(onMove)
+    listening = true
+  })
+}
+
+/**
  * Practice mode: listens to the instrument while the song plays, matches
  * what it hears against the shown track, and reports accuracy and timing.
  */
@@ -982,13 +1018,19 @@ export function usePractice(
         }
       }
 
+      const moved = seekSettled(api, range.startTick)
       api.stop()
       api.tickPosition = range.startTick
       takeRef.current = take
+      patch({ phase: 'recording' })
+      // Played only once the cursor is drawn at the start: alphaTab draws it
+      // a frame after the move, and drawn while playing (the count-in) it
+      // would glide off through the first beat before the song begins.
+      await moved
+      if (takeRef.current !== take || take.ending) return
       api.playerPositionChanged.on(onPosition)
       api.playerStateChanged.on(onState)
       api.playerFinished.on(onFinished)
-      patch({ phase: 'recording' })
       api.play()
     },
     [clearMarks, completePass, endTrainer, finish, openMic, patch, score],
