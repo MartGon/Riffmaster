@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { debugEnabled, debugLines, onDebug, startDebugLog } from '../lib/debugLog'
+import { beep, debugEnabled, debugLines, onDebug, startDebugLog } from '../lib/debugLog'
 
 const noChanges = () => () => {}
 
@@ -28,6 +28,9 @@ export function DebugPanel() {
     <div className="debug-panel">
       <div className="debug-buttons">
         <strong>Debug log</strong>
+        <button type="button" className="button" onClick={beep}>
+          Beep
+        </button>
         <button type="button" className="button" onClick={() => void copy()}>
           {copied ? 'Copied' : 'Copy'}
         </button>

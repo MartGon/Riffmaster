@@ -1,4 +1,4 @@
-import { debug, debugEnabled, describeError } from '../lib/debugLog'
+import { debug, debugEnabled, describeError, installLevelMeter, level } from '../lib/debugLog'
 import * as alphaTab from '@coderline/alphatab'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { clampSpeed } from '../lib/format'
@@ -390,6 +390,7 @@ export function usePlayer() {
     const base = '/'
     const prefs = loadPrefs()
     hookAlphaTabLogger()
+    installLevelMeter()
     const outputMode = debugOutputMode()
     const api = new alphaTab.AlphaTabApi(element, {
       // Note positions are needed to draw practice marks next to the notes.
@@ -848,8 +849,8 @@ export function usePlayer() {
       playPause: () =>
         withApi((api) => {
           debug(`play tapped: ready=${api.isReadyForPlayback} state=${api.playerState} audio ${audioState(api)}`)
-          window.setTimeout(() => debug(`  0.5 s later: state=${api.playerState} tick=${api.tickPosition} audio ${audioState(api)}, ${workletState(api)}`), 500)
-          window.setTimeout(() => debug(`  2 s later: state=${api.playerState} tick=${api.tickPosition} audio ${audioState(api)}, ${workletState(api)}`), 2000)
+          window.setTimeout(() => debug(`  0.5 s later: state=${api.playerState} tick=${api.tickPosition} audio ${audioState(api)}, ${workletState(api)}, ${level()}`), 500)
+          window.setTimeout(() => debug(`  2 s later: state=${api.playerState} tick=${api.tickPosition} audio ${audioState(api)}, ${workletState(api)}, ${level()}`), 2000)
           const asleep = wakeAudio(api)
           // "Playing" with the audio asleep means nothing could be heard:
           // waking it is what the tap was for, not pausing.

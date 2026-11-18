@@ -79,3 +79,53 @@ export function startDebugLog(): void {
   window.addEventListener('unhandledrejection', (event) => debug(`unhandled: ${describeError(event.reason)}`))
   document.addEventListener('visibilitychange', () => debug(`page ${document.visibilityState}`))
 }
+
+let meter: { context: BaseAudioContext; analyser: AnalyserNode } | null = null
+let meterInstalled = false
+
+/**
+ * Taps everything the page sends to the speaker, so the log can say whether
+ * the song is actually there or silent. Only with `?debug`.
+ */
+export function installLevelMeter(): void {
+  if (meterInstalled || !debugEnabled() || typeof AudioNode === 'undefined') return
+  meterInstalled = true
+  const connect = AudioNode.prototype.connect as (this: AudioNode, ...args: unknown[]) => unknown
+  AudioNode.prototype.connect = function (this: AudioNode, ...args: unknown[]) {
+    const target = args[0]
+    if (typeof AudioDestinationNode !== 'undefined' && target instanceof AudioDestinationNode) {
+      if (!meter || meter.context !== this.context) {
+        const analyser = this.context.createAnalyser()
+        analyser.fftSize = 2048
+        meter = { context: this.context, analyser }
+        debug(`level meter on a ${this.context.constructor.name}`)
+      }
+      connect.call(this, meter.analyser)
+    }
+    return connect.apply(this, args)
+  } as typeof AudioNode.prototype.connect
+}
+
+/** The loudest sample in the last ~40 ms sent to the speaker, from 0 to 1, or a note why there is none. */
+export function level(): string {
+  if (!meter) return 'level: nothing connected'
+  const samples = new Float32Array(meter.analyser.fftSize)
+  meter.analyser.getFloatTimeDomainData(samples)
+  let peak = 0
+  for (const sample of samples) peak = Math.max(peak, Math.abs(sample))
+  return `level ${peak.toFixed(3)}`
+}
+
+/** Plays a short tone through the audio context the player uses (or a new one), to hear whether sound gets out at all. */
+export function beep(): void {
+  const context = (meter?.context as AudioContext | undefined) ?? new AudioContext()
+  void (context as AudioContext).resume?.()
+  const oscillator = context.createOscillator()
+  const gain = context.createGain()
+  oscillator.frequency.value = 660
+  gain.gain.value = 0.3
+  oscillator.connect(gain).connect(context.destination)
+  oscillator.start()
+  oscillator.stop(context.currentTime + 0.4)
+  debug(`beep on a ${context.constructor.name}, state ${(context as AudioContext).state}`)
+}
