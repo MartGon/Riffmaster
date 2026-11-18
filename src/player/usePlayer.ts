@@ -8,6 +8,7 @@ import { snapSelectionToBars } from '../lib/loopRange'
 import { listSections, type SongSection } from '../lib/sections'
 import { barAtPoint } from './barAtPoint'
 import { splitTrackName } from '../lib/trackName'
+import { isDark, onThemeChange } from '../lib/theme'
 import { scoreColors } from './theme'
 
 export interface TrackInfo {
@@ -215,10 +216,6 @@ function wakeAudio(api: alphaTab.AlphaTabApi): boolean {
   return true
 }
 
-function prefersDark(): boolean {
-  return window.matchMedia('(prefers-color-scheme: dark)').matches
-}
-
 /**
  * Owns the alphaTab instance: renders the score into `scoreRef`, scrolls
  * `viewportRef` to follow playback, and exposes player state and actions.
@@ -328,7 +325,7 @@ export function usePlayer() {
         staveProfile: prefs.showNotation
           ? alphaTab.StaveProfile.ScoreTab
           : alphaTab.StaveProfile.Tab,
-        resources: scoreColors(prefersDark()),
+        resources: scoreColors(isDark()),
       },
       player: {
         playerMode: alphaTab.PlayerMode.EnabledSynthesizer,
@@ -588,14 +585,12 @@ export function usePlayer() {
       }, 0)
     })
 
-    // Re-colour the score when the system theme changes.
-    const media = window.matchMedia('(prefers-color-scheme: dark)')
-    const onThemeChange = () => {
-      api.settings.fillFromJson({ display: { resources: scoreColors(media.matches) } })
+    // Re-colour the score when the theme changes.
+    const stopThemeWatch = onThemeChange(() => {
+      api.settings.fillFromJson({ display: { resources: scoreColors(isDark()) } })
       api.updateSettings()
       if (api.score) api.render()
-    }
-    media.addEventListener('change', onThemeChange)
+    })
 
     // Turning the phone changes the layout.
     const sideways = window.matchMedia(SIDEWAYS)
@@ -635,7 +630,7 @@ export function usePlayer() {
     sideways.addEventListener('change', checkFit)
 
     return () => {
-      media.removeEventListener('change', onThemeChange)
+      stopThemeWatch()
       document.removeEventListener('visibilitychange', onVisible)
       window.clearInterval(stallTimer)
       window.clearTimeout(soundRetry)

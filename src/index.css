@@ -29,8 +29,38 @@
   background: var(--bg);
 }
 
+/*
+ * Dark colours: chosen in the app (data-theme="dark"), or the system's when
+ * the app is left on "system" (no data-theme). Keep both copies the same.
+ */
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #15171a;
+  --surface: #1e2125;
+  --surface-2: #2a2e34;
+  --paper: #1a1c20;
+  --text: #e8e6e3;
+  --text-muted: #a2a7b0;
+  --border: #353a41;
+  --accent: #ff9d66;
+  --accent-strong: #ffb68c;
+  --on-accent: #2a1204;
+  --accent-soft: rgb(255 157 102 / 0.18);
+  --danger-bg: #43201b;
+  --danger-text: #ffc9bf;
+  --grade-ok: #51cf66;
+  --grade-off: #ffa94d;
+  --grade-miss: #ff6b6b;
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-2: 0 10px 34px rgb(0 0 0 / 0.55);
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
     --bg: #15171a;
     --surface: #1e2125;
     --surface-2: #2a2e34;
@@ -81,6 +111,13 @@ button {
     border-color 0.12s ease,
     color 0.12s ease,
     box-shadow 0.12s ease;
+}
+
+/* Set for a moment while the theme changes, so everything switches together. */
+.theme-switching *,
+.theme-switching *::before,
+.theme-switching *::after {
+  transition: none !important;
 }
 
 button:disabled {

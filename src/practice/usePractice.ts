@@ -1,6 +1,7 @@
 import * as alphaTab from '@coderline/alphatab'
 import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { TakeRecord } from '../library/types'
+import { isDark, onThemeChange } from '../lib/theme'
 import type { PlayerState } from '../player/usePlayer'
 import { defaultDetectorOptions, type DetectedNote, NoteDetector } from './detector'
 import {
@@ -305,19 +306,16 @@ export function usePractice(
 
   /** Colours the marked notes in the tab for the current light or dark theme. */
   const paintMarked = useCallback(() => {
-    colourNotes(markedRef.current, window.matchMedia('(prefers-color-scheme: dark)').matches)
+    colourNotes(markedRef.current, isDark())
   }, [])
 
   // The result colours differ between the light and the dark theme.
   useEffect(() => {
-    const media = window.matchMedia('(prefers-color-scheme: dark)')
-    const onChange = () => {
+    return onThemeChange(() => {
       if (markedRef.current.size === 0) return
       paintMarked()
       if (apiRef.current?.score) apiRef.current.render()
-    }
-    media.addEventListener('change', onChange)
-    return () => media.removeEventListener('change', onChange)
+    })
   }, [paintMarked])
 
   const closeMic = useCallback(() => {

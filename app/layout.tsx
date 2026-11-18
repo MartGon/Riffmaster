@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import type { ReactNode } from 'react'
 import '../src/index.css'
+import { themeBootScript } from '../src/lib/theme'
 
 export const metadata: Metadata = {
   title: 'RiffMaster',
@@ -17,7 +18,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    // The script below may set data-theme before React takes over, hence suppressHydrationWarning.
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
+      </head>
       <body>
         <div id="root">{children}</div>
       </body>

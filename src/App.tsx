@@ -9,6 +9,7 @@ import { LibraryView } from './components/LibraryView'
 import { NewTabDialog } from './components/NewTabDialog'
 import { PracticePanel } from './components/PracticePanel'
 import { SectionList } from './components/SectionList'
+import { ThemeToggle } from './components/ThemeToggle'
 import { TrackList } from './components/TrackList'
 import { Transport } from './components/Transport'
 import { TunerPanel } from './components/TunerPanel'
@@ -454,6 +455,7 @@ export default function App() {
             </>
           )}
         </div>
+        <ThemeToggle />
         <input
           ref={fileInput}
           type="file"
