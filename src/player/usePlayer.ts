@@ -1,4 +1,4 @@
-import { debug, describeError } from '../lib/debugLog'
+import { debug, debugEnabled, describeError } from '../lib/debugLog'
 import * as alphaTab from '@coderline/alphatab'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { clampSpeed } from '../lib/format'
@@ -228,6 +228,49 @@ function audioState(api: alphaTab.AlphaTabApi): string {
   return `${context.state} @${context.sampleRate}Hz t=${context.currentTime.toFixed(2)}`
 }
 
+/** For the `?debug` log: whether alphaTab has built its audio worklet, which it does on the first Play. */
+function workletState(api: alphaTab.AlphaTabApi): string {
+  const output = api.player?.output as { _worklet?: unknown } | undefined
+  if (!output || !('_worklet' in output)) return 'script processor'
+  return output._worklet ? 'worklet built' : 'no worklet yet'
+}
+
+let loggerHooked = false
+
+/** Copies alphaTab's own warnings and errors into the `?debug` log. */
+function hookAlphaTabLogger(): void {
+  if (loggerHooked || !debugEnabled()) return
+  loggerHooked = true
+  const previous = alphaTab.Logger.log
+  const text = (details: unknown[]) => details.map((d) => (typeof d === 'string' ? d : describeError(d))).join(' ')
+  alphaTab.Logger.log = {
+    debug: (category, msg, ...details) => previous.debug(category, msg, ...details),
+    info: (category, msg, ...details) => {
+      debug(`alphaTab info [${category}] ${msg} ${text(details)}`)
+      previous.info(category, msg, ...details)
+    },
+    warning: (category, msg, ...details) => {
+      debug(`alphaTab warning [${category}] ${msg} ${text(details)}`)
+      previous.warning(category, msg, ...details)
+    },
+    error: (category, msg, ...details) => {
+      debug(`alphaTab error [${category}] ${msg} ${text(details)}`)
+      previous.error(category, msg, ...details)
+    },
+  }
+}
+
+/**
+ * With `?debug&output=sp`, plays through the older ScriptProcessor output
+ * instead of an audio worklet, to tell apart problems with either.
+ */
+function debugOutputMode(): alphaTab.PlayerOutputMode | undefined {
+  if (!debugEnabled()) return undefined
+  return new URLSearchParams(window.location.search).get('output') === 'sp'
+    ? alphaTab.PlayerOutputMode.WebAudioScriptProcessor
+    : undefined
+}
+
 function wakeAudio(api: alphaTab.AlphaTabApi): boolean {
   const context = audioContextOf(api)
   if (!context || context.state === 'running' || context.state === 'closed') return false
@@ -336,6 +379,8 @@ export function usePlayer() {
 
     const base = '/'
     const prefs = loadPrefs()
+    hookAlphaTabLogger()
+    const outputMode = debugOutputMode()
     const api = new alphaTab.AlphaTabApi(element, {
       // Note positions are needed to draw practice marks next to the notes.
       core: { fontDirectory: `${base}font/`, includeNoteBounds: true },
@@ -353,6 +398,7 @@ export function usePlayer() {
         scrollOffsetY: -24,
         enableCursor: true,
         enablePlaybackRangeSelection: true,
+        ...(outputMode === undefined ? {} : { outputMode }),
       },
     })
     // Cursors as tall as the staves, not as the tempo and markers above them.
@@ -770,7 +816,8 @@ export function usePlayer() {
       playPause: () =>
         withApi((api) => {
           debug(`play tapped: ready=${api.isReadyForPlayback} state=${api.playerState} audio ${audioState(api)}`)
-          window.setTimeout(() => debug(`  0.5 s later: state=${api.playerState} tick=${api.tickPosition} audio ${audioState(api)}`), 500)
+          window.setTimeout(() => debug(`  0.5 s later: state=${api.playerState} tick=${api.tickPosition} audio ${audioState(api)}, ${workletState(api)}`), 500)
+          window.setTimeout(() => debug(`  2 s later: state=${api.playerState} tick=${api.tickPosition} audio ${audioState(api)}, ${workletState(api)}`), 2000)
           const asleep = wakeAudio(api)
           // "Playing" with the audio asleep means nothing could be heard:
           // waking it is what the tap was for, not pausing.
