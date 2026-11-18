@@ -34,7 +34,7 @@ import { SIDEWAYS, usePlayer } from './player/usePlayer'
 import { type NewTake, usePractice } from './practice/usePractice'
 import { useTuner } from './tuner/useTuner'
 
-const ACCEPTED = '.gp,.gp3,.gp4,.gp5,.gpx,.musicxml,.mxl,.xml,.cap'
+const ACCEPTED = '.gp,.gp3,.gp4,.gp5,.gpx,.musicxml,.mxl,.xml,.capx'
 
 /**
  * iPhones and iPads grey out files whose type they do not know, which

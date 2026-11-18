@@ -42,6 +42,8 @@ public/sounds/
 e2e/*.png
 e2e/*.wav
 e2e/expected.json
+# Test files fetched by e2e/formats.mjs (alphaTab's test data; some carry their own copyright)
+e2e/formats/
 
 # Private
 keys/

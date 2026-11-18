@@ -62,6 +62,9 @@ export function Transport({
   picking,
 }: Props) {
   const ready = state.status === 'ready'
+  // Tracks without strings (drums, voices, piano) have no tab, so they are only ever shown in notation.
+  const active = state.tracks.find((track) => track.index === state.activeTrack)
+  const notationOnly = active !== undefined && (active.percussion || active.tuning.length === 0)
   const playable = ready && state.canPlay && !practiceBusy
   const percent = Math.round(state.speed * 100)
 
@@ -216,8 +219,8 @@ export function Transport({
             <Toggle
               icon="notation"
               label="Notation"
-              pressed={state.showNotation}
-              disabled={!ready || practiceBusy}
+              pressed={state.showNotation || notationOnly}
+              disabled={!ready || practiceBusy || notationOnly}
               onChange={actions.setShowNotation}
             />
             <Toggle

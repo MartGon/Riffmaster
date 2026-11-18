@@ -25,8 +25,9 @@ offline once a song has been opened.
 - **Library:** songs are stored in the browser (IndexedDB), with their settings and
   practice history. Nothing is sent to a server.
 
-Accepted files: Guitar Pro (`.gp`, `.gp3`, `.gp4`, `.gp5`, `.gpx`); MusicXML and
-Capella files are accepted too but have not been tested.
+Accepted files: Guitar Pro 3 to 8 (`.gp3`, `.gp4`, `.gp5`, `.gpx`, `.gp`), MusicXML
+(`.xml`, `.musicxml`, compressed `.mxl`) and Capella (`.capx`). Tracks without strings,
+such as voice, piano or drums, are shown in standard notation only.
 
 ## Getting started
 

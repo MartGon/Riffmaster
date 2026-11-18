@@ -147,11 +147,15 @@ function defaultTrackIndex(score: alphaTab.model.Score): number {
 }
 
 /**
- * How a track is drawn. Drums have no tablature, so they are always shown
- * in standard notation; asking alphaTab for a tab-only drum staff fails.
+ * How a track is drawn. Tracks without strings (drums, voices, piano, as in
+ * many MusicXML and Capella files) have no tablature, so they are always
+ * shown in standard notation: asking alphaTab for tab only then leaves it
+ * with no staff to draw, and it fails.
  */
 function staveProfileFor(track: alphaTab.model.Track | undefined, showNotation: boolean) {
-  if (track?.staves[0]?.isPercussion) return alphaTab.StaveProfile.Score
+  if (track && !track.staves.some((staff) => staff.isStringed && !staff.isPercussion)) {
+    return alphaTab.StaveProfile.Score
+  }
   return showNotation ? alphaTab.StaveProfile.ScoreTab : alphaTab.StaveProfile.Tab
 }
 

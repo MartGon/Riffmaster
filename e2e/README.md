@@ -25,5 +25,6 @@ They need:
 | `mixer.mjs` | Master and track volumes, remembered per device and per song; the app's name |
 | `editor.mjs` | The tab editor: typing, undo, clicks, copy and paste, bars, saving and restoring, the unsaved-changes question, new tabs, phone size. `node editor.mjs song\|new\|phone\|all` |
 | `theme.mjs` | The theme switch: system, light and dark, remembered after a reload and in other tabs, the score re-coloured |
+| `formats.mjs` | Every accepted format (Guitar Pro 3–8, MusicXML, compressed MusicXML, Capella) opened, drawn and played, tracks without strings shown in notation. Downloads alphaTab's test files into `formats/` on first run; needs no tab file of yours |
 
 Screenshots, audio and `expected.json` are written next to the scripts and are ignored by git.
