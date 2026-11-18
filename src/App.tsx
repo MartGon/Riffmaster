@@ -288,17 +288,18 @@ export default function App() {
     practice.state.phase === 'starting' ||
     practice.state.trainer.running
 
-  // Practice and the tuner both listen to the instrument, so only one is open at a time.
+  // A practice take or the speed trainer under way (measuring the delay needs the panel).
+  const practising = practiceBusy && (practice.state.kind === 'practice' || practice.state.trainer.running)
   // A phone held sideways gives the tab the whole screen while the song
-  // plays: the bars at the top and bottom step aside until it is paused.
+  // plays, or a practice take runs: the bars at the top and bottom and the
+  // practice panel step aside until it is paused or the take ends.
   const immersive =
     ready &&
     sideways &&
-    state.isPlaying &&
-    !practice.state.open &&
     !editor.state.active &&
     !tuner.state.open &&
-    !tracksOpen
+    !tracksOpen &&
+    ((state.isPlaying && !practice.state.open) || (practice.state.open && practising))
 
   // The editor, practice and the tuner each use the bottom of the screen, so one is open at a time.
   const togglePractice = () => {
@@ -756,10 +757,28 @@ export default function App() {
         </ChoiceDialog>
       )}
 
-      {immersive && (
+      {immersive && !practice.state.open && (
         <button type="button" className="float-pause" aria-label="Pause" title="Pause and show the controls" onClick={actions.playPause}>
           <Icon name="pause" size={20} />
         </button>
+      )}
+      {immersive && practice.state.open && (
+        <div className="float-practice">
+          <button
+            type="button"
+            className="float-pause"
+            aria-label={practice.state.trainer.running ? 'Stop trainer' : 'Stop practice'}
+            title={practice.state.trainer.running ? 'Stop the trainer and show the controls' : 'Stop the take and show the controls'}
+            onClick={practice.actions.stop}
+          >
+            <Icon name="stop" size={18} />
+          </button>
+          {practice.state.live && (
+            <span className="float-live" role="status">
+              {practice.state.live.hit} / {practice.state.live.total} notes
+            </span>
+          )}
+        </div>
       )}
 
       {dragging && <div className="drop-overlay">Drop to add to your library</div>}
