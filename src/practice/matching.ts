@@ -14,6 +14,8 @@ export interface PlayedNote {
    * second appears when the detector could not tell the octave apart.
    */
   midi: number[]
+  /** Every note whose sound shows just after the attack (see presentNotes); needed to score chords. */
+  present?: number[]
 }
 
 export type NoteGrade = 'onTime' | 'early' | 'late' | 'missed' | 'unscored'
@@ -59,9 +61,41 @@ export function matchOptionsFor(leeway: TimingLeeway): MatchOptions {
   return { ...defaultMatchOptions, onTimeMs: preset.onTimeMs, windowMs: preset.windowMs }
 }
 
-/** Only single notes are scored; chords need a different kind of detection. */
+/** Longest a strum takes from its first string to its last (as STRUM_SEC in the detector). */
+export const STRUM_MS = 100
+
+/** Single notes and chords are scored; a beat with no notes is not. */
 export function isScored(note: ExpectedNote): boolean {
-  return note.midi.length === 1
+  return note.midi.length > 0
+}
+
+/** A beat with several notes sounding together. */
+export function isChord(note: ExpectedNote): boolean {
+  return new Set(note.midi).size > 1
+}
+
+/**
+ * Whether a chord was played: every pitch class it has (C, E and G for C
+ * major) must sound at one of the octaves the tab writes it in. A doubled
+ * note left out, such as a muted string, does not matter; a missing or
+ * different harmony does, so A minor does not pass for C major although they
+ * share two notes.
+ */
+export function chordHeard(chord: number[], present: number[] | undefined): boolean {
+  if (!present) return false
+  const heard = new Set(present.map(Math.round))
+  const classes = new Map<number, boolean>()
+  for (const midi of chord) {
+    const pitchClass = ((Math.round(midi) % 12) + 12) % 12
+    classes.set(pitchClass, (classes.get(pitchClass) ?? false) || heard.has(Math.round(midi)))
+  }
+  return [...classes.values()].every(Boolean)
+}
+
+/** Whether a played note can be the given beat: its pitch for a single note, the whole chord for a chord. */
+function fits(note: ExpectedNote, played: PlayedNote, tolerance: number): boolean {
+  if (isChord(note)) return chordHeard(note.midi, played.present)
+  return pitchMatches(played.midi, note.midi[0], tolerance)
 }
 
 /** Whether any of the pitches a played note could be is the written one. */
@@ -117,7 +151,8 @@ export function estimateLatency(
     for (let i = first; i < scored.length; i++) {
       const delay = note.timeMs - scored[i].timeMs
       if (delay < minMs) break
-      if (!pitchMatches(note.midi, scored[i].midi[0], tolerance)) continue
+      // A chord's attack is heard on one of its notes.
+      if (!scored[i].midi.some((midi) => pitchMatches(note.midi, midi, tolerance))) continue
       votes.push(delay)
       bins[Math.floor((delay - minMs) / binMs)]++
     }
@@ -169,7 +204,11 @@ export function matchNotes(
     grade: isScored(note) ? 'missed' : 'unscored',
     offsetMs: null,
   }))
-  const pairs: { e: number; p: number; offset: number }[] = []
+  const tolerance = options.pitchTolerance
+  // A chord played wrong still made an attack, usually on one of its notes:
+  // that attack is set aside for it (`reserve`), so it cannot count as a
+  // nearby single note that was never played. The chord stays missed.
+  const pairs: { e: number; p: number; offset: number; reserve: boolean }[] = []
   let first = 0
   for (let e = 0; e < expected.length; e++) {
     const note = expected[e]
@@ -178,45 +217,55 @@ export function matchNotes(
     for (let p = first; p < played.length; p++) {
       const offset = played[p].timeMs - target
       if (offset > options.windowMs) break
-      // A chord is heard as one attack carrying one of its notes.
-      if (note.midi.some((midi) => pitchMatches(played[p].midi, midi, options.pitchTolerance))) {
-        pairs.push({ e, p, offset })
+      if (fits(note, played[p], tolerance)) pairs.push({ e, p, offset, reserve: false })
+      else if (isChord(note) && note.midi.some((midi) => pitchMatches(played[p].midi, midi, tolerance))) {
+        pairs.push({ e, p, offset, reserve: true })
       }
     }
   }
-  pairs.sort((a, b) => Math.abs(a.offset) - Math.abs(b.offset))
+  // Closest first; of two equally close, a real match first. A chord that
+  // set an attack aside can still be matched by a closer look at another.
+  pairs.sort((a, b) => Math.abs(a.offset) - Math.abs(b.offset) || Number(a.reserve) - Number(b.reserve))
   const usedPlayed = new Set<number>()
-  const chordHeard = new Set<number>()
-  for (const { e, p, offset } of pairs) {
+  const reserved = new Set<number>()
+  for (const { e, p, offset, reserve } of pairs) {
     if (usedPlayed.has(p)) continue
-    if (!isScored(expected[e])) {
-      // Chords are not graded, but the attack they produced is set aside so
-      // it cannot count as a nearby single note that was never played.
-      if (!chordHeard.has(e)) {
-        chordHeard.add(e)
-        usedPlayed.add(p)
-      }
+    if (results[e].offsetMs !== null) continue
+    if (reserve) {
+      if (reserved.has(e)) continue
+      reserved.add(e)
+      usedPlayed.add(p)
       continue
     }
-    if (results[e].offsetMs !== null) continue
     usedPlayed.add(p)
     results[e] = {
       grade: Math.abs(offset) <= options.onTimeMs ? 'onTime' : offset < 0 ? 'early' : 'late',
       offsetMs: offset,
     }
   }
+  // A slow strum can be heard as several attacks, one per string or two.
+  // Those after a chord's own attack, on notes of the chord, belong to it
+  // and are not wrong extra notes.
+  results.forEach((result, e) => {
+    if (result.offsetMs === null || !isChord(expected[e])) return
+    const at = expected[e].timeMs + latencyMs + result.offsetMs
+    for (let p = 0; p < played.length; p++) {
+      if (usedPlayed.has(p) || played[p].timeMs <= at || played[p].timeMs > at + STRUM_MS) continue
+      if (expected[e].midi.some((midi) => pitchMatches(played[p].midi, midi, tolerance))) usedPlayed.add(p)
+    }
+  })
   return { results, extraNotes: played.length - usedPlayed.size, usedPlayed }
 }
 
 export interface PracticeSummary {
-  /** Notes that were scored (single notes inside the played section). */
+  /** Notes and chords that were scored, inside the played section. */
   scored: number
   hit: number
   onTime: number
   early: number
   late: number
   missed: number
-  /** Chord beats that were left out of the score. */
+  /** Beats left out of the score; none since chords are scored, kept for older takes. */
   unscored: number
   /** Played notes that matched nothing in the tab. */
   extraNotes: number

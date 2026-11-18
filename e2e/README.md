@@ -19,7 +19,7 @@ They need:
 | `worklet-retry.mjs` | The iPhone playback fix: the first starts of alphaTab's audio worklet are made to fail as they do in Safari's engine, and playback must still start; after 3 failures it says so. Built app on port 5198; uses a file fetched by `formats.mjs` |
 | `sync.mjs` | The sync button and sign-in form: nothing sent before signing in, a wrong password reported. Needs `.env.local` with a Supabase project. The exchange itself is covered by `src/sync/engine.test.ts` |
 | `expected.mjs` | Writes `expected.json`: the notes the tab expects per track. Run before `practice.mjs` |
-| `practice.mjs` | Practice mode: a synthesized performance is fed in as the microphone and the app's score is compared with the mistakes that were put in. `node practice.mjs clean\|mistakes\|bass\|all` |
+| `practice.mjs` | Practice mode: a synthesized performance is fed in as the microphone and the app's score is compared with the mistakes that were put in. `chords` practises a strummed section with a skipped, a wrong and a late chord. `node practice.mjs clean\|mistakes\|bass\|chords\|all` |
 | `features.mjs` | Sections, fretboard, tuner, live practice marks, practice history and the speed trainer. `node features.mjs ui\|tuner\|trainer\|all` |
 | `practice-loop.mjs` | Practice with Loop on (a pass per time round) and practice from the playback position. Run `expected.mjs` first. `node practice-loop.mjs loop\|cursor\|edge\|all` |
 | `select.mjs` | Choosing bars by tapping on a phone-sized touch screen |

@@ -230,3 +230,130 @@ export class FluxMeter {
     return flux
   }
 }
+
+/** Window for telling the notes of a chord apart: long enough to separate neighbouring low notes. */
+export const CHORD_FFT_SIZE = 8192
+
+const tables = new Map<number, { cos: Float64Array; sin: Float64Array; reversed: Uint32Array }>()
+
+function fftTables(size: number) {
+  let table = tables.get(size)
+  if (!table) {
+    const cos = new Float64Array(size / 2)
+    const sin = new Float64Array(size / 2)
+    for (let i = 0; i < size / 2; i++) {
+      cos[i] = Math.cos((2 * Math.PI * i) / size)
+      sin[i] = Math.sin((2 * Math.PI * i) / size)
+    }
+    const reversed = new Uint32Array(size)
+    for (let i = 0, bits = Math.log2(size); i < size; i++) {
+      let r = 0
+      for (let b = 0; b < bits; b++) r |= ((i >> b) & 1) << (bits - 1 - b)
+      reversed[i] = r
+    }
+    table = { cos, sin, reversed }
+    tables.set(size, table)
+  }
+  return table
+}
+
+/** As magnitudeSpectrum, for a window of `size` samples (a power of two). */
+export function magnitudeSpectrumOf(samples: Float32Array, size: number): Float64Array {
+  const { cos, sin, reversed } = fftTables(size)
+  const length = Math.min(samples.length, size)
+  const re = new Float64Array(size)
+  const im = new Float64Array(size)
+  for (let i = 0; i < length; i++) {
+    const hann = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / Math.max(1, length - 1))
+    re[reversed[i]] = samples[i] * hann
+  }
+  for (let span = 2; span <= size; span <<= 1) {
+    const half = span >> 1
+    const step = size / span
+    for (let start = 0; start < size; start += span) {
+      for (let j = 0, t = 0; j < half; j++, t += step) {
+        const a = start + j
+        const b = a + half
+        const xr = re[b] * cos[t] + im[b] * sin[t]
+        const xi = im[b] * cos[t] - re[b] * sin[t]
+        re[b] = re[a] - xr
+        im[b] = im[a] - xi
+        re[a] += xr
+        im[a] += xi
+      }
+    }
+  }
+  const out = new Float64Array(size / 2)
+  const scale = 2 / Math.max(1, length)
+  for (let i = 0; i < out.length; i++) out[i] = Math.hypot(re[i], im[i]) * scale
+  return out
+}
+
+/** How strong a note's harmonics must be together, against the strongest note's, to count as sounding. */
+export const PRESENT_SHARE = 0.15
+/** How strong a note's own fundamental must be, against its strongest low harmonic. */
+const FUNDAMENTAL_SHARE = 0.1
+
+/**
+ * The notes whose sound shows in a spectrum of `size` samples (see
+ * magnitudeSpectrumOf), for telling which notes of a chord were played.
+ * Each note gets the strength of its harmonics added up, as in
+ * likelyPitches. A note counts when
+ * - it stands out from the notes a semitone either side, which share some
+ *   of its frequency bins and so all look a little present;
+ * - it reaches a fair share of the strongest note;
+ * - its own fundamental shows. A note a fifth or an octave below a played
+ *   one has most of its harmonics in common with it, but not its fundamental.
+ * Returns MIDI pitches, low to high.
+ */
+export function presentNotes(spectrum: Float64Array, sampleRate: number, size = FFT_SIZE, share = PRESENT_SHARE): number[] {
+  const binHz = sampleRate / size
+  const read = (hz: number) => {
+    const position = hz / binHz
+    const reach = Math.round((hz * 0.012) / binHz)
+    if (reach === 0) {
+      const low = Math.floor(position)
+      const mix = position - low
+      return (spectrum[low] ?? 0) * (1 - mix) + (spectrum[low + 1] ?? 0) * mix
+    }
+    let peak = 0
+    const centre = Math.round(position)
+    for (let k = centre - reach; k <= centre + reach; k++) {
+      if (k > 0 && k < spectrum.length && spectrum[k] > peak) peak = spectrum[k]
+    }
+    return peak
+  }
+  const scores: number[] = []
+  const fundamentals: boolean[] = []
+  for (let midi = LOWEST_MIDI; midi <= HIGHEST_MIDI; midi++) {
+    const f0 = 440 * 2 ** ((midi - 69) / 12)
+    let score = 0
+    let shown = 0
+    let harmonics = 0
+    let strongest = 0
+    let first = 0
+    for (let h = 1; h <= 10; h++) {
+      const hz = f0 * h
+      if (hz > 5000 || hz > sampleRate / 2 - binHz) break
+      const peak = read(hz)
+      if (h === 1) first = peak
+      if (h <= 4) strongest = Math.max(strongest, peak)
+      harmonics++
+      score += peak / Math.sqrt(h)
+      if (h <= 4 && peak > 0) shown++
+    }
+    scores.push(harmonics > 0 && shown >= Math.min(2, harmonics) ? score : 0)
+    fundamentals.push(first >= strongest * FUNDAMENTAL_SHARE)
+  }
+  let best = 0
+  for (const score of scores) if (score > best) best = score
+  if (best <= 0) return []
+  const present: number[] = []
+  for (let i = 0; i < scores.length; i++) {
+    const score = scores[i]
+    if (score < best * share || !fundamentals[i]) continue
+    if (score <= (scores[i - 1] ?? 0) || score <= (scores[i + 1] ?? 0)) continue
+    present.push(LOWEST_MIDI + i)
+  }
+  return present
+}

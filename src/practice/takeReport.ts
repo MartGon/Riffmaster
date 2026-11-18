@@ -133,7 +133,7 @@ export function analyzeTake(
     timeMs: note.wavSec * 1000 - report.latencyMs,
     midi: note.midi,
   }))
-  const played: PlayedNote[] = found.map((note) => ({ timeMs: note.timeSec * 1000, midi: note.midi }))
+  const played: PlayedNote[] = found.map((note) => ({ timeMs: note.timeSec * 1000, midi: note.midi, present: note.present }))
   // The default search range (-150 to 800 ms) is widened when the saved delay
   // lies outside it, so the estimate can still land near that delay.
   const estimate = estimateLatency(expected, played, {
@@ -379,7 +379,7 @@ export interface TakeDetails {
   rows: TakeDetailsRow[]
   /** Misses per string that has scored notes, highest string first. */
   byString: { label: string; missed: number; total: number }[]
-  /** Chords, which are not scored. */
+  /** Chords left unscored, in takes saved before chords were scored. */
   chords: number
 }
 

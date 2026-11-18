@@ -433,6 +433,8 @@ export function usePractice(
     const played: PlayedNote[] = take.played.map((note) => ({
       timeMs: mic.toPageTimeMs(micStart + note.timeSec) - base,
       midi: note.midi,
+      // Filled in a moment after the note itself; needed to score chords.
+      present: note.present,
     }))
 
     const estimate = estimateLatency(timeline, played, {
@@ -510,6 +512,7 @@ export function usePractice(
         wavSec: take.played[index].timeSec,
         timeMs: note.timeMs,
         midi: note.midi,
+        present: note.present,
         matched: usedPlayed.has(index),
       })),
     })

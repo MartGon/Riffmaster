@@ -1,5 +1,5 @@
 import { PitchDetector } from 'pitchy'
-import { FFT_SIZE, FLUX_AHEAD, FluxMeter, likelyPitches, magnitudeSpectrum } from './spectrum'
+import { CHORD_FFT_SIZE, FFT_SIZE, FLUX_AHEAD, FluxMeter, likelyPitches, magnitudeSpectrum, magnitudeSpectrumOf, presentNotes } from './spectrum'
 
 export interface DetectedNote {
   /** Position of the note's start, in seconds of audio fed to the detector. */
@@ -9,6 +9,12 @@ export interface DetectedNote {
    * a second appears when the octave is ambiguous.
    */
   midi: number[]
+  /**
+   * For an attack: every note whose sound shows just after it, low to high,
+   * including strings still ringing. Used to tell whether a chord was
+   * played. Missing for a note found as a change of pitch without an attack.
+   */
+  present?: number[]
 }
 
 export interface DetectorOptions {
@@ -51,6 +57,8 @@ const TIME_WINDOW = 1024
 const FIND_WINDOW = 2048
 /** From the start of the short window whose flux peaks to the attack itself, in samples. */
 const ONSET_BACK = 480
+/** Longest a strum takes from its first string to its last, in seconds. */
+export const STRUM_SEC = 0.1
 /** Hops the long window waits for the short one to report the same attack. */
 const SECOND_WAIT = 6
 
@@ -90,6 +98,8 @@ export class NoteDetector {
   /** Whether each of those hops was above the silence gate. */
   private readonly loud: boolean[] = []
   private lastNoteFrame = -RING
+  /** The latest attacks, as sample positions, oldest first. */
+  private readonly attacks: number[] = []
   /** Attacks whose pitch has not been read yet, as sample positions, oldest first. */
   private readonly pending: number[] = []
   /** The note currently ringing, when a plain pitch reading agrees with it. */
@@ -97,6 +107,12 @@ export class NoteDetector {
   /** A different pitch seen once, waiting for a second reading to confirm it. */
   private candidate: { midi: number; frame: number } | null = null
   private hopsSinceTrack = 0
+  /**
+   * Attacks whose chord reading (`present`) waits for more audio: it takes
+   * a longer stretch than the pitch, so the note is reported first and the
+   * reading added to it a moment later.
+   */
+  private readonly chords: { note: DetectedNote; start: number }[] = []
 
   constructor(
     sampleRate: number,
@@ -139,6 +155,8 @@ export class NoteDetector {
   }
 
   private attack(onset: number): void {
+    this.attacks.push(onset)
+    if (this.attacks.length > 16) this.attacks.shift()
     this.lastNoteFrame = onset
     this.pending.push(onset)
     this.current = null
@@ -148,6 +166,33 @@ export class NoteDetector {
   /** Reads the pitch of attacks still waiting for more audio. Call when the audio ends. */
   flush(): void {
     while (this.pending.length > 0) this.resolvePending(true)
+    while (this.chords.length > 0) this.resolveChord(true)
+  }
+
+  /**
+   * Adds the chord reading to the oldest attack waiting for one, once the
+   * stretch after it has arrived (or `force` is set). A chord is judged by
+   * all of its sound after the strum, not only what the strum added: notes
+   * it shares with the chord before ring on, and would hardly show as added.
+   * The stretch ends at the next attack. Returns whether it was handled.
+   */
+  private resolveChord(force: boolean): boolean {
+    const { note, start } = this.chords[0]
+    // The strings of one strum can be heard as attacks of their own; only
+    // an attack well after this one starts something else.
+    const next = this.nextAttackAfter(start + STRUM_SEC * this.sampleRate)
+    const limit = next ?? this.frames
+    const length = Math.min(CHORD_FFT_SIZE, limit - start, RING)
+    if (next === null && length < CHORD_FFT_SIZE && !force) return false
+    this.chords.shift()
+    if (length >= MIN_ANALYSIS) note.present = presentNotes(magnitudeSpectrumOf(this.copy(start, length), CHORD_FFT_SIZE), this.sampleRate, CHORD_FFT_SIZE)
+    return true
+  }
+
+  /** The first attack after a sample position, among those already found. */
+  private nextAttackAfter(position: number): number | null {
+    for (const onset of this.attacks) if (onset > position) return onset
+    return null
   }
 
   private processHop(): void {
@@ -207,6 +252,9 @@ export class NoteDetector {
     while (this.pending.length > 0 && this.resolvePending(false)) {
       // keep going while attacks have enough audio after them
     }
+    while (this.chords.length > 0 && this.resolveChord(false)) {
+      // the same for chord readings
+    }
     if (this.pending.length > 0) return
 
     if (!audible) {
@@ -236,7 +284,7 @@ export class NoteDetector {
 
     const after = magnitudeSpectrum(this.copy(start, length))
     const beforeLength = Math.min(length, onset - Math.max(0, this.frames - RING), onset)
-    const added = after
+    const added = Float64Array.from(after)
     if (beforeLength >= MIN_ANALYSIS) {
       const before = magnitudeSpectrum(this.copy(onset - beforeLength, beforeLength))
       for (let i = 0; i < added.length; i++) added[i] = Math.max(0, after[i] - before[i])
@@ -250,7 +298,9 @@ export class NoteDetector {
     const midi = likelyPitches(added, this.sampleRate)
     if (midi.length > 0) {
       this.current = { midi: midi[0], confirmed: false }
-      this.onNote({ timeSec: onset / this.sampleRate, midi })
+      const note: DetectedNote = { timeSec: onset / this.sampleRate, midi }
+      this.chords.push({ note, start })
+      this.onNote(note)
     }
     return true
   }

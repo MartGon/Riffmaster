@@ -27,24 +27,42 @@ function writeWav(path, samples) {
 }
 
 /** Builds the performance: every note of the tab, altered by `mistakes`. */
-function perform(trackIndex, speed, mistakes) {
-  const expected = expectedAll[trackIndex].map((n) => ({ ...n, timeMs: n.timeMs / speed })).filter((n) => n.timeMs < TAKE * 1000)
+function perform(trackIndex, speed, mistakes, bars = null, take = TAKE) {
+  // With `bars` ([first, last], counted from 0) only those bars are played, from their start.
+  const inBars = (n) => !bars || (n.tick >= bars[0] * 3840 && n.tick < (bars[1] + 1) * 3840)
+  const startMs = bars ? Math.min(...expectedAll[trackIndex].filter(inBars).map((n) => n.timeMs)) : 0
+  const expected = expectedAll[trackIndex]
+    .filter(inBars)
+    .map((n) => ({ ...n, timeMs: (n.timeMs - startMs) / speed }))
+    .filter((n) => n.timeMs < take * 1000)
   const single = expected.filter((n) => n.midi.length === 1)
+  const chordList = expected.filter((n) => n.midi.length > 1)
   const notes = []
-  expected.forEach((beat) => {
+  expected.forEach((beat, at) => {
     const index = beat.midi.length === 1 ? single.indexOf(beat) : -1
-    if (mistakes.skip?.includes(index)) return
-    const shift = mistakes.wrong?.includes(index) ? 2 : 0
-    const late = mistakes.late?.includes(index) ? 0.11 : 0
-    for (const midi of beat.midi) notes.push({ timeSec: LEAD + beat.timeMs / 1000 + late, midi: midi + shift, durationSec: 1.2 })
+    const chord = beat.midi.length > 1 ? chordList.indexOf(beat) : -1
+    if (mistakes.skip?.includes(index) || mistakes.skipChord?.includes(chord)) return
+    // A whole tone up: for a chord, a different chord altogether.
+    const shift = mistakes.wrong?.includes(index) || mistakes.wrongChord?.includes(chord) ? 2 : 0
+    const late = mistakes.late?.includes(index) || mistakes.lateChord?.includes(chord) ? 0.11 : 0
+    // Strings ring until the next beat, as when strumming; a strum takes 10 ms per string.
+    const next = expected[at + 1]?.timeMs ?? beat.timeMs + 1200
+    const ring = Math.min(1.2, (next - beat.timeMs) / 1000 + 0.02)
+    beat.midi.forEach((midi, string) => {
+      const strum = beat.midi.length > 1 ? string * 0.01 : 0
+      notes.push({ timeSec: LEAD + beat.timeMs / 1000 + late + strum, midi: midi + shift, durationSec: ring - strum })
+    })
   })
   notes.sort((a, b) => a.timeSec - b.timeSec)
-  return { audio: synthesize(notes, RATE, LEAD + TAKE + 4, { noiseFloor: 0.001 }), scored: single.length }
+  // Chords are scored as well as single notes: one each. The mistakes are on single notes.
+  return { audio: synthesize(notes, RATE, LEAD + take + 4, { noiseFloor: 0.001 }), scored: expected.length, chords: chordList.length }
 }
 
-async function run(label, { trackRow, trackIndex, speedClicks = 0, mistakes = {}, viewport = { width: 1280, height: 800 } }) {
+async function run(label, { trackRow, trackIndex, speedClicks = 0, mistakes = {}, viewport = { width: 1280, height: 800 }, section = null }) {
   const speed = 1 - speedClicks * 0.05
-  const { audio, scored } = perform(trackIndex, speed, mistakes)
+  // A section: its row in the list, its bars, and how long it plays.
+  const take = section ? section.seconds : TAKE
+  const { audio, scored, chords } = perform(trackIndex, speed, mistakes, section?.bars, take)
   const wav = `${out}take-${label}.wav`
   writeWav(wav, audio)
   const browser = await chromium.launch({
@@ -66,6 +84,14 @@ async function run(label, { trackRow, trackIndex, speedClicks = 0, mistakes = {}
   await page.click(`.track:nth-child(${trackRow}) .track-name`)
   await page.waitForTimeout(1500)
   for (let i = 0; i < speedClicks; i++) await page.click('button[aria-label="Slower"]')
+  if (section) {
+    // Select the section, played once rather than round and round.
+    if (viewport.width <= 800) await page.click('.tracks-toggle')
+    await page.click(`.section:nth-child(${section.row}) .chip`)
+    await page.waitForTimeout(500)
+    await page.click('button[title="Loop"]')
+    if (viewport.width <= 800) await page.click('.tracks-toggle').catch(() => {})
+  }
 
   // Opening the panel opens the microphone, which starts the audio file.
   const opened = Date.now()
@@ -78,7 +104,7 @@ async function run(label, { trackRow, trackIndex, speedClicks = 0, mistakes = {}
   const countIn = (4 * 60) / (96 * speed)
   await page.waitForTimeout(Math.max(0, (LEAD - countIn - 0.75) * 1000 - (Date.now() - opened)))
   await page.click('.practice .button.primary')
-  await page.waitForTimeout((countIn + TAKE - 1.5) * 1000)
+  await page.waitForTimeout((countIn + take - 1.5) * 1000)
   const live = await page.textContent('.practice-live').catch(() => null)
   await page.screenshot({ path: `${out}practice-${label}-live.png` })
   await page.click('.practice .button.primary') // Stop
@@ -104,10 +130,10 @@ async function run(label, { trackRow, trackIndex, speedClicks = 0, mistakes = {}
   const num = (re) => Number(text.match(re)?.[1] ?? NaN)
   const r = { pct: num(/(\d+)%/), hit: num(/(\d+) of \d+ notes/), total: num(/of (\d+) notes/), onTime: num(/(\d+) on time/), early: num(/(\d+) early/), late: num(/(\d+) late/), missed: num(/(\d+) missed/), delay: num(/Delay used: (-?\d+) ms/) }
   console.log(`      ${label}: live "${live}" | ${text.slice(0, 260)}`)
-  const expectMissed = (mistakes.skip?.length ?? 0) + (mistakes.wrong?.length ?? 0)
-  const expectLate = mistakes.late?.length ?? 0
+  const expectMissed = ['skip', 'wrong', 'skipChord', 'wrongChord'].reduce((sum, key) => sum + (mistakes[key]?.length ?? 0), 0)
+  const expectLate = (mistakes.late?.length ?? 0) + (mistakes.lateChord?.length ?? 0)
   // The take is stopped by hand, so the last note or two may fall outside it.
-  check(`${label}: scores about the notes in the section`, Math.abs(r.total - scored) <= 5, `scored ${r.total}, performance had ${scored}`)
+  check(`${label}: scores about the notes in the section`, Math.abs(r.total - scored) <= 5, `scored ${r.total}, performance had ${scored}, ${chords} of them chords`)
   check(`${label}: missed notes = skipped + wrong`, r.missed === expectMissed, `missed ${r.missed}, expected ${expectMissed}`)
   check(`${label}: late notes found`, r.late === expectLate && r.early === 0, `late ${r.late}, early ${r.early}, expected late ${expectLate}`)
   check(`${label}: the rest are on time`, r.onTime === r.total - expectMissed - expectLate, `on time ${r.onTime}`)
@@ -133,4 +159,13 @@ const which = process.argv[2] ?? 'all'
 if (which === 'all' || which === 'clean') await run('clean', { trackRow: 5, trackIndex: 4 })
 if (which === 'all' || which === 'mistakes') await run('mistakes', { trackRow: 5, trackIndex: 4, mistakes: { skip: [3, 9], wrong: [5, 12], late: [7, 15] } })
 if (which === 'all' || which === 'bass') await run('bass-slow-phone', { trackRow: 6, trackIndex: 5, speedClicks: 4, mistakes: { skip: [10], wrong: [20], late: [9] }, viewport: { width: 390, height: 844 } })
+// Chorus 1 (bars 37-40) of the rhythm guitar: an A minor shape strummed in sixteenths.
+if (which === 'all' || which === 'chords') {
+  await run('chords', {
+    trackRow: 5,
+    trackIndex: 4,
+    section: { row: 7, bars: [36, 39], seconds: 10 },
+    mistakes: { skipChord: [4], wrongChord: [10], lateChord: [12] },
+  })
+}
 process.exit(results.every(Boolean) ? 0 : 1)

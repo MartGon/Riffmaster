@@ -11,8 +11,9 @@ offline once a song has been opened.
 
 - **Playback:** tab and standard notation, tempo control, looping a selection of bars,
   section markers, a mixer with master and per-track volume, and muting tracks.
-- **Practice scoring:** play along and get a score per note and per bar, with live marks
-  for on time, early, late and missed. Takes are kept as a history per song, with the
+- **Practice scoring:** play along and get a score per note, chord and bar, with live
+  marks for on time, early, late and missed. A chord counts when each of its notes is
+  heard at an octave the tab writes it in, so a different chord is caught. Takes are kept as a history per song, with the
   bars that go wrong most.
 - **Speed trainer:** repeats a selection, raising the tempo each time you pass it.
 - **Tuner** for the strings of the track on screen, including basses and alternate tunings.

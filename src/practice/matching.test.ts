@@ -8,6 +8,7 @@ import {
   type PlayedNote,
   pitchMatches,
   summarize,
+  chordHeard,
 } from './matching'
 
 /** A scale run of eighth notes at 120 bpm (250 ms apart). */
@@ -133,14 +134,14 @@ describe('matchNotes', () => {
     expect(results.map((r) => r.grade)).toEqual(['onTime', 'missed', 'onTime', 'onTime'])
   })
 
-  it('does not let a chord count as a nearby single note that was not played', () => {
+  it('does not let a chord played wrong count as a nearby single note that was not played', () => {
     const expected: ExpectedNote[] = [
       { timeMs: 1000, midi: [40, 47, 52] },
       { timeMs: 1100, midi: [40] },
     ]
-    // Only the chord is played; it is heard as one attack on its root.
-    const { results, extraNotes } = matchNotes(expected, [{ timeMs: 1000, midi: [40] }], 0)
-    expect(results.map((r) => r.grade)).toEqual(['unscored', 'missed'])
+    // Only a wrong chord is played: one attack on its root, without the fifth.
+    const { results, extraNotes } = matchNotes(expected, [{ timeMs: 1000, midi: [40], present: [40, 52] }], 0)
+    expect(results.map((r) => r.grade)).toEqual(['missed', 'missed'])
     expect(extraNotes).toBe(0)
   })
 
@@ -150,20 +151,50 @@ describe('matchNotes', () => {
       { timeMs: 1100, midi: [40] },
     ]
     const played = [
-      { timeMs: 1005, midi: [40] },
+      { timeMs: 1005, midi: [40], present: [40, 47, 52, 59] },
       { timeMs: 1090, midi: [40] },
     ]
     const { results } = matchNotes(expected, played, 0)
-    expect(results.map((r) => r.grade)).toEqual(['unscored', 'onTime'])
+    expect(results.map((r) => r.grade)).toEqual(['onTime', 'onTime'])
   })
 
-  it('leaves chords unscored', () => {
+  it('scores a chord by whether all of it sounds, and its timing', () => {
     const expected: ExpectedNote[] = [
       { timeMs: 1000, midi: [52] },
-      { timeMs: 1500, midi: [52, 59, 64] },
+      { timeMs: 1500, midi: [48, 52, 55, 60, 64] }, // C major, open
+      { timeMs: 2000, midi: [48, 52, 55, 60, 64] },
+      { timeMs: 2500, midi: [48, 52, 55, 60, 64] },
     ]
-    const { results } = matchNotes(expected, [{ timeMs: 1000, midi: [52] }], 0)
-    expect(results.map((r) => r.grade)).toEqual(['onTime', 'unscored'])
+    const played: PlayedNote[] = [
+      { timeMs: 1000, midi: [52] },
+      // Heard on time, with every note.
+      { timeMs: 1510, midi: [60], present: [48, 52, 55, 60, 64, 67] },
+      // 90 ms late, the high E string muted: still C major.
+      { timeMs: 2090, midi: [60], present: [48, 52, 55, 60] },
+      // A minor instead (A, C, E): no G, so not C major.
+      { timeMs: 2500, midi: [57], present: [45, 52, 57, 60, 64] },
+    ]
+    const { results } = matchNotes(expected, played, 0)
+    expect(results.map((r) => r.grade)).toEqual(['onTime', 'onTime', 'late', 'missed'])
+  })
+
+  it('counts a chord with no sound heard after its attack as missed', () => {
+    const { results } = matchNotes([{ timeMs: 1000, midi: [52, 59, 64] }], [{ timeMs: 1000, midi: [52] }], 0)
+    expect(results.map((r) => r.grade)).toEqual(['missed'])
+  })
+})
+
+describe('chordHeard', () => {
+  it('needs every pitch class, at an octave the tab writes it in', () => {
+    const g = [43, 47, 50, 55, 59, 67] // G major, open: G B D G B G
+    expect(chordHeard(g, [43, 47, 50, 55, 59, 67])).toBe(true)
+    // A doubled note left out does not matter.
+    expect(chordHeard(g, [43, 47, 50])).toBe(true)
+    // Without any D it is not G major.
+    expect(chordHeard(g, [43, 47, 55, 59, 67])).toBe(false)
+    // A D at an octave the tab does not have (an overtone) does not count.
+    expect(chordHeard(g, [43, 47, 55, 59, 62, 67])).toBe(false)
+    expect(chordHeard(g, undefined)).toBe(false)
   })
 })
 
@@ -177,9 +208,9 @@ describe('summarize', () => {
     const { results, extraNotes } = matchNotes(expected, played, 0)
     const summary = summarize(results, extraNotes)
     expect(summary).toMatchObject({
-      scored: 4, hit: 3, onTime: 2, late: 1, early: 0, missed: 1, unscored: 1, extraNotes: 0,
+      scored: 5, hit: 3, onTime: 2, late: 1, early: 0, missed: 2, unscored: 0, extraNotes: 0,
     })
-    expect(summary.accuracy).toBeCloseTo(0.75)
+    expect(summary.accuracy).toBeCloseTo(0.6)
     expect(summary.typicalOffsetMs).toBe(0)
   })
 
