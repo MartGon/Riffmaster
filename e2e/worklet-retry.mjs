@@ -46,7 +46,14 @@ for (const failures of [1, 2, 4]) {
     check(`plays after ${failures} failed start${failures > 1 ? 's' : ''} of the audio worklet`, moved && retries === failures, `${retries} retries`)
     check('no error shown', notice === null, notice ?? '')
   } else {
-    check('gives up after 3 tries and says so', !moved && retries === 3 && /could not start/.test(notice ?? ''), notice ?? 'no message')
+    check('after 3 tries sets the sound up again and says so', !moved && retries === 3 && /set up again/.test(notice ?? ''), notice ?? 'no message')
+    // The next attempt, with the new audio output, is allowed to work.
+    await page.waitForFunction(() => !document.querySelector('.play')?.disabled, null, { timeout: 60000 })
+    await page.tap('.play')
+    const after = await page
+      .waitForFunction(() => !['0:00', undefined].includes(document.querySelector('.seek .time')?.textContent), null, { timeout: 5000 })
+      .then(() => true, () => false)
+    check('then plays', after)
   }
   await context.close()
 }

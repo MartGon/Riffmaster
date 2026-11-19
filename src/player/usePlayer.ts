@@ -536,6 +536,24 @@ export function usePlayer() {
         }
       }
       if (!score) return
+      if (rebuilt) {
+        if (!rebuilt.sounds) return
+        const back = rebuilt
+        rebuilt = null
+        const tracks = stateRef.current.tracks
+        const pick = (flag: 'muted' | 'solo') =>
+          score.tracks.filter((t) => tracks.find((info) => info.index === t.index)?.[flag])
+        const muted = pick('muted')
+        const solo = pick('solo')
+        if (muted.length > 0) api.changeTrackMute(muted, true)
+        if (solo.length > 0) api.changeTrackSolo(solo, true)
+        for (const track of score.tracks) {
+          api.changeTrackVolume([track], tracks.find((info) => info.index === track.index)?.volume ?? 1)
+        }
+        if (back.range) api.playbackRange = back.range as typeof api.playbackRange
+        api.tickPosition = back.tick
+        return
+      }
       // The synthesizer keeps mute and solo by channel across loads: a track
       // soloed in the last song would leave this one silent, its tracks
       // being on other channels. So they are cleared first, keeping a
@@ -559,7 +577,8 @@ export function usePlayer() {
     let workletRetries = 0
     const retryAfterWorkletFailure = () => {
       if (workletRetries >= 3) {
-        patch({ error: 'Playback could not start on this device. Reload the page to try again.' })
+        workletRetries = 0
+        rebuildAudio()
         return
       }
       workletRetries++
@@ -576,41 +595,100 @@ export function usePlayer() {
     })
     api.playerReady.on(() => {
       prepareWorkletScope(api)
+      watchOutput()
       patch({ canPlay: true, soundProgress: 1 })
       startOfflineStore()
     })
     // Should the sounds never arrive, the rest of the app is still stored.
     const offlineTimer = window.setTimeout(startOfflineStore, 60000)
-    // If playback is on but the position stops moving, the audio has been
-    // cut off (on iOS, by the system). Playback is then paused, so the
-    // button shows Play again and the next tap can wake the audio.
-    let lastMove = 0
+    // Sound actually rendered, as reported by alphaTab's audio output. A
+    // count-in renders sound too, though the position does not move.
+    let lastSound = 0
+    let watchedOutput: unknown = null
+    const watchOutput = () => {
+      const output = api.player?.output
+      if (!output || output === watchedOutput) return
+      watchedOutput = output
+      output.samplesPlayed.on(() => {
+        lastSound = performance.now()
+        workletRetries = 0
+      })
+    }
+
+    // Playing without any sound being rendered has two causes on iOS. The
+    // system may have suspended the audio (the screen locked, another app
+    // played): then playback is paused, and the next tap on Play wakes it.
+    // Or the audio runs but alphaTab's output is stuck, waiting for a step
+    // that never finishes; every later Play would queue behind it. Then the
+    // output is built anew, which needs no reload of the page.
     let stallTimer = 0
     const watchStall = () => {
       window.clearInterval(stallTimer)
-      lastMove = performance.now()
+      watchOutput()
+      const started = performance.now()
       stallTimer = window.setInterval(() => {
         if (api.playerState !== alphaTab.synth.PlayerState.Playing) {
           window.clearInterval(stallTimer)
           return
         }
-        if (performance.now() - lastMove < 2500) return
-        // A count-in does not move the position either; only audio that is
-        // no longer running is a stall.
-        if (audioContextOf(api)?.state === 'running') return
+        if (performance.now() - Math.max(lastSound, started) < 3000) return
         window.clearInterval(stallTimer)
+        if (audioContextOf(api)?.state === 'running') {
+          rebuildAudio()
+          return
+        }
         api.pause()
         patch({ error: 'Playback stopped because the phone paused the sound. Press Play to go on.' })
       }, 500)
     }
+
+    /** What to put back once a rebuilt output has the song again. */
+    let rebuilt: {
+      tick: number
+      range: { startTick: number; endTick: number } | null
+      /** Whether the sounds are in the new output; the song is loaded again after them. */
+      sounds: boolean
+    } | null = null
+    /**
+     * Throws away alphaTab's audio output and makes a new one: a new audio
+     * context, the sounds and the song loaded into it again. Position,
+     * selection and the mixer are kept.
+     */
+    function rebuildAudio() {
+      if (rebuilt) return
+      window.clearInterval(stallTimer)
+      const range = api.playbackRange
+      rebuilt = {
+        tick: api.tickPosition,
+        range: range ? { startTick: range.startTick, endTick: range.endTick } : null,
+        sounds: false,
+      }
+      // Destroying the old output stops its wait and closes its audio context.
+      watchedOutput = null
+      api.settings.player.playerMode = alphaTab.PlayerMode.Disabled
+      api.updateSettings()
+      api.settings.player.playerMode = alphaTab.PlayerMode.EnabledSynthesizer
+      api.updateSettings()
+      patch({
+        isPlaying: false,
+        canPlay: false,
+        soundProgress: 0,
+        error: 'The sound had stopped working and has been set up again. Press Play to go on.',
+      })
+    }
+    // A new output loads the song before the sounds, and the song's
+    // instruments are only taken from the sounds as the song loads: without
+    // loading it again, it would play in silence.
+    api.soundFontLoaded.on(() => {
+      if (!rebuilt || rebuilt.sounds) return
+      rebuilt.sounds = true
+      api.loadMidiForScore()
+    })
     api.playerStateChanged.on((args) => {
       const playing = args.state === alphaTab.synth.PlayerState.Playing
       if (playing) watchStall()
       else window.clearInterval(stallTimer)
       patch({ isPlaying: playing })
-    })
-    api.playerPositionChanged.on(() => {
-      lastMove = performance.now()
     })
     // Coming back to the page is a good moment to wake the audio; iOS may
     // still insist on a tap, which Play then provides.
