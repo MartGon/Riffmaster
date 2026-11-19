@@ -578,6 +578,19 @@ button:disabled {
   font-size: 0.85rem;
 }
 
+.app-version {
+  margin: 24px auto 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-align: center;
+  user-select: text;
+}
+
+.library-empty .app-version {
+  margin-top: 24px;
+  font-size: 0.75rem;
+}
+
 .songs {
   list-style: none;
   margin-top: 0;

@@ -1,4 +1,5 @@
 import { AlphaTabWebPackPlugin } from '@coderline/alphatab-webpack'
+import { execSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 
@@ -10,6 +11,24 @@ import os from 'node:os'
 const soundBank = fs.existsSync('public/sounds/GeneralUser-GS.sf2')
   ? 'sounds/GeneralUser-GS.sf2'
   : 'soundfont/sonivox.sf3'
+
+/**
+ * Which build this is, shown in the library: the commit and when it was
+ * built. Vercel names the commit; elsewhere git is asked, and changes not
+ * yet committed are marked with a "+".
+ */
+function buildVersion() {
+  const git = (command) => {
+    try {
+      return execSync(`git ${command}`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()
+    } catch {
+      return ''
+    }
+  }
+  const commit = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) || git('rev-parse --short=7 HEAD') || 'unknown'
+  const dirty = !process.env.VERCEL_GIT_COMMIT_SHA && git('status --porcelain --untracked-files=no') !== ''
+  return `${commit}${dirty ? '+' : ''}`
+}
 
 /** This computer's addresses on the network, so a phone may load the dev server. */
 const networkHosts = Object.values(os.networkInterfaces())
@@ -24,7 +43,11 @@ export default {
   reactStrictMode: true,
   // Next's badge sits over the bottom-left corner, where the play button is.
   devIndicators: false,
-  env: { NEXT_PUBLIC_SOUND_BANK: soundBank },
+  env: {
+    NEXT_PUBLIC_SOUND_BANK: soundBank,
+    NEXT_PUBLIC_BUILD_VERSION: buildVersion(),
+    NEXT_PUBLIC_BUILD_TIME: new Date().toISOString(),
+  },
   allowedDevOrigins: [...networkHosts, '*.local'],
   // Types are checked by `tsc` in the build script.
   typescript: { ignoreBuildErrors: true },

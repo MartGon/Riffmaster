@@ -1,5 +1,6 @@
 import type { SongPractice } from '../library/db'
 import type { Song } from '../library/types'
+import { versionText } from '../lib/version'
 import { Icon } from './Icon'
 
 interface Props {
@@ -54,6 +55,7 @@ export function LibraryView({ songs, practice, busy, onOpen, onDelete, onAdd, on
           </button>
         </div>
         <p className="hint">Guitar Pro 3 to 8 (.gp, .gpx, .gp5, .gp4, .gp3) and MusicXML</p>
+        <p className="app-version">{versionText()}</p>
       </div>
     )
   }
@@ -114,6 +116,7 @@ export function LibraryView({ songs, practice, busy, onOpen, onDelete, onAdd, on
           </li>
         ))}
       </ul>
+      <p className="app-version">{versionText()}</p>
     </div>
   )
 }
