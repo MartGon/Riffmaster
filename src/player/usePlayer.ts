@@ -521,9 +521,15 @@ export function usePlayer() {
     }
     api.postRenderFinished.on(onDrawn)
 
+    /** Reloads of the song's MIDI data made only to leave a count-in; they change nothing else. */
+    let quietMidiLoads = 0
     // Mute and solo live in the synthesizer, which is ready for the new
     // song once its MIDI data has been generated.
     api.midiLoaded.on(() => {
+      if (quietMidiLoads > 0) {
+        quietMidiLoads--
+        return
+      }
       const settings = pendingSettings.current
       const score = api.score
       const kept = keepAfterEdit.current
@@ -684,11 +690,37 @@ export function usePlayer() {
       rebuilt.sounds = true
       api.loadMidiForScore()
     })
+    // alphaTab only goes from a count-in to the song when the count-in has
+    // played to its end. Stopped during one, it stays on the count-in: the
+    // next count-in then has the wrong number of clicks, and the position
+    // (and with it the cursor) is not reported while it thinks it is still
+    // counting in. Loading the song's MIDI data again puts it back on the
+    // song; mute, solo and volumes stay as they are in the synthesizer.
+    let countingIn = false
+    const leaveCountIn = () => {
+      const tick = api.tickPosition
+      const range = api.playbackRange
+      const kept = range ? { startTick: range.startTick, endTick: range.endTick } : null
+      quietMidiLoads++
+      api.loadMidiForScore()
+      // Loading goes back to the start; these follow it to the synthesizer in order.
+      if (kept) api.playbackRange = kept as typeof api.playbackRange
+      api.tickPosition = tick
+    }
     api.playerStateChanged.on((args) => {
       const playing = args.state === alphaTab.synth.PlayerState.Playing
-      if (playing) watchStall()
-      else window.clearInterval(stallTimer)
+      if (playing) {
+        countingIn = api.countInVolume > 0
+        watchStall()
+      } else {
+        window.clearInterval(stallTimer)
+        if (countingIn && !rebuilt) leaveCountIn()
+        countingIn = false
+      }
       patch({ isPlaying: playing })
+    })
+    api.playerPositionChanged.on((args) => {
+      if (!args.isSeek) countingIn = false
     })
     // Coming back to the page is a good moment to wake the audio; iOS may
     // still insist on a tap, which Play then provides.
