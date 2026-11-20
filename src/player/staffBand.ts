@@ -41,10 +41,44 @@ function staffBand(bar: alphaTab.rendering.MasterBarBounds): Band {
   return bar.staffSystemBounds ? systemStaffBand(bar.staffSystemBounds) : bar.visualBounds
 }
 
-/** The default animated cursor, cut down to the height of the staves. */
+type CursorMode = Parameters<alphaTab.ToNextBeatAnimatingCursorHandler['transitionBeatCursor']>[5]
+/** alphaTab's cursor mode for moving on to the next beat (named `ToNextBext` there). */
+const TO_NEXT_BEAT = 1
+/** How long the cursor takes to close a gap to where it should be. */
+const CATCH_UP_MS = 150
+/** Gaps wider than this are not closed gradually. */
+const MAX_CATCH_UP_PX = 40
+
+/**
+ * The animated cursor, cut down to the height of the staves. alphaTab moves
+ * it with a CSS transition that it replaces at every beat; Safari on the
+ * iPhone then shows it at the wrong place for a frame now and then, so the
+ * cursor flickers as it reaches each note. Here it is moved frame by frame
+ * instead, from where it is to the next beat.
+ */
 export class StaffCursorHandler extends alphaTab.ToNextBeatAnimatingCursorHandler {
+  private frame = 0
+  private x = 0
+
+  private halt() {
+    if (this.frame) cancelAnimationFrame(this.frame)
+    this.frame = 0
+  }
+
+  private moveTo(cursor: alphaTab.platform.IContainer, x: number) {
+    this.x = x
+    cursor.transitionToX(0, x)
+  }
+
+  onDetach(cursors: Parameters<alphaTab.ToNextBeatAnimatingCursorHandler['onDetach']>[0]) {
+    this.halt()
+    super.onDetach(cursors)
+  }
+
   placeBeatCursor(cursor: alphaTab.platform.IContainer, beat: alphaTab.rendering.BeatBounds, startBeatX: number) {
+    this.halt()
     const band = staffBand(beat.barBounds.masterBarBounds)
+    this.x = startBeatX
     cursor.transitionToX(0, startBeatX)
     cursor.setBounds(startBeatX, band.y, 1, band.h)
   }
@@ -53,6 +87,36 @@ export class StaffCursorHandler extends alphaTab.ToNextBeatAnimatingCursorHandle
     const bar = beat.barBounds.masterBarBounds.visualBounds
     const band = staffBand(beat.barBounds.masterBarBounds)
     cursor.setBounds(bar.x, band.y, bar.w, band.h)
+  }
+
+  transitionBeatCursor(
+    cursor: alphaTab.platform.IContainer,
+    _beat: alphaTab.rendering.BeatBounds,
+    startBeatX: number,
+    nextBeatX: number,
+    duration: number,
+    cursorMode: CursorMode,
+  ) {
+    this.halt()
+    if (!(duration > 0)) {
+      this.moveTo(cursor, nextBeatX)
+      return
+    }
+    // As alphaTab plans it: at this speed towards the next beat, going on
+    // past it (up to twice as far) should the next beat be reported late.
+    const reach = cursorMode === TO_NEXT_BEAT ? 2 : 1
+    const speed = (nextBeatX - startBeatX) / duration
+    // A small gap between where it is and where it should be closes over a
+    // moment instead of in one jump; a big one is a jump anyway.
+    const gap = Math.abs(this.x - startBeatX) < MAX_CATCH_UP_PX ? this.x - startBeatX : 0
+    const begun = performance.now()
+    const step = (now: number) => {
+      const t = Math.min(duration * reach, Math.max(0, now - begun))
+      const x = startBeatX + speed * t + gap * Math.max(0, 1 - t / CATCH_UP_MS)
+      this.moveTo(cursor, x)
+      this.frame = t < duration * reach ? requestAnimationFrame(step) : 0
+    }
+    this.frame = requestAnimationFrame(step)
   }
 }
 
