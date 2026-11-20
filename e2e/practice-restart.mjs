@@ -92,7 +92,18 @@ const cursorMoves = (from) =>
 
 // One bar of count-in at 96 bpm: 4 clicks, a beat (625 ms) apart, and the
 // song a beat after the fourth. Take 2 follows one stopped mid-song, mid-bar.
-for (const [round, stopAfter] of [[1, 4000], [2, 4000], [3, 1200], [4, 4000], [5, 300], [6, 4000]]) {
+for (const [round, stopAfter] of [[1, 6000], [2, 4000], [3, 1200], [4, 4000], [5, 300], [6, 4000]]) {
+  if (round === 2)
+    await page.evaluate(() => {
+      // The positions reported until the song moves on: the seek to the take's start.
+      window.__ticks = []
+      const api = window.__riffmaster.api()
+      const from = api.tickPosition
+      api.playerPositionChanged.on((args) => {
+        if (window.__ticks && args.isSeek) window.__ticks.push(args.currentTick)
+      })
+      window.__ticks.push(from)
+    })
   const t0 = await now()
   await start()
   await page.waitForTimeout(stopAfter)
@@ -108,13 +119,25 @@ for (const [round, stopAfter] of [[1, 4000], [2, 4000], [3, 1200], [4, 4000], [5
   if (stopAfter >= 3500) {
     const first = t0 + (times[0] ?? 0)
     const countIn = song === null ? null : Math.round(song - first)
-    const clicks = times.filter((t) => t0 + t < (song ?? Infinity) - 100).length
+    // The song's first note sounds as the cursor moves off.
+    const clicks = times.filter((t) => t0 + t < (song ?? Infinity) - 250).length
     check(
       `take ${round}: the count-in is one bar, 4 clicks`,
       clicks === 4 && countIn !== null && countIn > 2200 && countIn < 2900,
       `${clicks} clicks, song ${countIn} ms after the first; heard at ${times.slice(0, 7).join(', ')} ms`,
     )
   } else console.log(`      take ${round}: stopped after ${stopAfter} ms, clicks at ${times.join(', ')} ms`)
+  if (round === 2) {
+    // Stopped mid-bar, the take begins at the start of that same bar: no
+    // position before the song may fall in the bar before it.
+    const bars = await page.evaluate(() => {
+      const api = window.__riffmaster.api()
+      const bars = window.__ticks.map((tick) => api.tickCache.masterBars.findIndex((b) => tick >= b.start && tick < b.end))
+      window.__ticks = null
+      return bars.filter((bar, i) => i === 0 || bar !== bars[i - 1])
+    })
+    check('starting a take after a stop mid-bar, the position stays in its bar', bars.length === 1, `bars reported: ${bars.join(' -> ')}`)
+  }
   check(`take ${round}: the cursor is shown after stopping`, (await cursor()) === 'shown', await cursor())
 }
 // A take stopped during its count-in, then the panel closed and the song

@@ -216,14 +216,15 @@ function describeMicError(error: unknown): string {
 }
 
 /**
- * Resolves once the player has stopped and moved to `tick` and alphaTab has
- * drawn the cursor there, which it does on the frames after the player
- * reports the move. Gives up waiting after a moment, should no report come.
+ * Resolves once the player has moved to `tick` (having paused first, when
+ * `pausing`) and alphaTab has drawn the cursor there, which it does on the
+ * frames after the player reports the move. Gives up waiting after a moment,
+ * should no report come.
  */
-function seekSettled(api: alphaTab.AlphaTabApi, tick: number): Promise<void> {
+function seekSettled(api: alphaTab.AlphaTabApi, tick: number, pausing: boolean): Promise<void> {
   return new Promise((resolve) => {
     let done = false
-    let stopped = false
+    let stopped = !pausing
     const settle = () => {
       if (done) return
       done = true
@@ -233,10 +234,10 @@ function seekSettled(api: alphaTab.AlphaTabApi, tick: number): Promise<void> {
       // Two frames on, the cursor is in place.
       requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
     }
-    // The player reports its stop before the move, and other moves come and
-    // go meanwhile; only the move reported after the stop is the one asked for.
+    // The player reports its pause before the move, and other moves come and
+    // go meanwhile; only the move reported after the pause is the one asked for.
     // alphaTab hands a new listener the current state and position at once;
-    // those are not reports of this stop and move.
+    // those are not reports of this pause and move.
     let listening = false
     const onState = (args: { state: number }) => {
       if (listening && args.state !== alphaTab.synth.PlayerState.Playing) stopped = true
@@ -837,6 +838,13 @@ export function usePractice(
       // Later rounds of the speed trainer play what round 1 played.
       const kept = nextRound ? trainerRef.current.range : undefined
       const range = kept ?? { startTick, endTick: selected ? selected.endTick : songEnd }
+      // The player itself goes to the bar's start: sent to the few ticks
+      // before it, the cursor and the bar's highlight would show the bar
+      // before for a moment.
+      const barAt = lookup.masterBars.find(
+        (b) => b.start > range.startTick && b.start <= range.startTick + POSITION_SLACK,
+      )
+      const seekTick = barAt ? barAt.start : range.startTick
       // Read from the player itself: the trainer may have changed the speed a moment ago.
       const speed = api.playbackSpeed
       const expected = collectExpected(lookup, track.index, speed, range)
@@ -922,7 +930,7 @@ export function usePractice(
       api.isLooping = looping
       // Looping without a selection goes round from the starting point to the end.
       const ownRange = looping && !selected
-      if (ownRange) api.playbackRange = { ...range } as typeof api.playbackRange
+      if (ownRange) api.playbackRange = { startTick: seekTick, endTick: range.endTick } as typeof api.playbackRange
       if (kind === 'measure') {
         // Only the practised track sounds, so the microphone hears exactly
         // the notes the tab expects.
@@ -971,7 +979,7 @@ export function usePractice(
         // alphaTab occasionally plays on past the end of a loop instead of
         // going back; then the take sends it back itself.
         if (looping && args.currentTick > range.endTick + 480) {
-          api.tickPosition = range.startTick
+          api.tickPosition = seekTick
           return
         }
         if (args.currentTick <= range.startTick) return
@@ -1026,9 +1034,12 @@ export function usePractice(
         }
       }
 
-      const moved = seekSettled(api, range.startTick)
-      api.stop()
-      api.tickPosition = range.startTick
+      // Paused, not stopped: a stop would first send the player back to the
+      // song's start, showing it there for a moment.
+      const playing = api.playerState === alphaTab.synth.PlayerState.Playing
+      const moved = seekSettled(api, seekTick, playing)
+      if (playing) api.pause()
+      api.tickPosition = seekTick
       takeRef.current = take
       patch({ phase: 'recording' })
       // Played only once the cursor is drawn at the start: alphaTab draws it
