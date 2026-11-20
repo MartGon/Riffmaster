@@ -31,6 +31,7 @@ await page.addInitScript(() => {
     return connect.call(this, target, ...rest)
   }
   window.__trace = []
+  window.__cursor = []
   setInterval(() => {
     let peak = 0
     for (const analyser of analysers) {
@@ -40,6 +41,8 @@ await page.addInitScript(() => {
       for (const v of data) peak = Math.max(peak, Math.abs(v))
     }
     window.__trace.push([performance.now(), peak])
+    const c = document.querySelector('.at-cursor-beat')
+    window.__cursor.push([performance.now(), c ? Math.round(c.getBoundingClientRect().x) : null])
   }, 10)
 })
 await page.goto(APP)
@@ -79,24 +82,39 @@ const start = () => page.click('.practice .button.primary')
 const stop = () => page.click('.practice .button.primary')
 const waitIdle = () => page.waitForFunction(() => /Start/.test(document.querySelector('.practice .button.primary')?.textContent ?? ''), null, { timeout: 15000 })
 
-// One bar of count-in at 96 bpm: 4 clicks in 2.5 s.
-for (const [round, stopAfter] of [[1, 4000], [2, 1200], [3, 4000], [4, 300], [5, 4000]]) {
+/** When the cursor first moves after a page time: the song has begun. */
+const cursorMoves = (from) =>
+  page.evaluate((from) => {
+    const trace = window.__cursor.filter(([t, x]) => t >= from && x !== null)
+    const x0 = trace[0]?.[1]
+    return trace.find(([, x]) => x !== x0)?.[0] ?? null
+  }, from)
+
+// One bar of count-in at 96 bpm: 4 clicks, a beat (625 ms) apart, and the
+// song a beat after the fourth. Take 2 follows one stopped mid-song, mid-bar.
+for (const [round, stopAfter] of [[1, 4000], [2, 4000], [3, 1200], [4, 4000], [5, 300], [6, 4000]]) {
   const t0 = await now()
   await start()
   await page.waitForTimeout(stopAfter)
   const times = await onsets(t0, t0 + stopAfter)
-  // The clicks are a beat (625 ms) apart; the song follows the fourth.
-  const first = times[0] ?? 0
-  const heard = times.filter((t) => t - first < 625 * 3.5).length
+  // Measured from the first click: the jump back to the bar's start moves it before that.
+  const song = await cursorMoves(t0 + (times[0] ?? 0) + 50)
   await stop()
   await waitIdle().catch(() => {})
   await page.waitForTimeout(1500)
   // A clear result panel, if any, is dismissed so Start shows again.
   await page.click('text=Clear results').catch(() => {})
   await page.waitForTimeout(300)
-  const expected = stopAfter >= 2450 ? 4 : null
-  if (expected) check(`take ${round}: the count-in clicks ${expected} times`, heard === expected, `heard at ${times.slice(0, 6).join(', ')} ms`)
-  else console.log(`      take ${round}: stopped after ${stopAfter} ms, ${heard} clicks heard`)
+  if (stopAfter >= 3500) {
+    const first = t0 + (times[0] ?? 0)
+    const countIn = song === null ? null : Math.round(song - first)
+    const clicks = times.filter((t) => t0 + t < (song ?? Infinity) - 100).length
+    check(
+      `take ${round}: the count-in is one bar, 4 clicks`,
+      clicks === 4 && countIn !== null && countIn > 2200 && countIn < 2900,
+      `${clicks} clicks, song ${countIn} ms after the first; heard at ${times.slice(0, 7).join(', ')} ms`,
+    )
+  } else console.log(`      take ${round}: stopped after ${stopAfter} ms, clicks at ${times.join(', ')} ms`)
   check(`take ${round}: the cursor is shown after stopping`, (await cursor()) === 'shown', await cursor())
 }
 // A take stopped during its count-in, then the panel closed and the song

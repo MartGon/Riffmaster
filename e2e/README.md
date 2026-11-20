@@ -15,7 +15,7 @@ They need:
 | `library.mjs` | Saved songs, remembered settings, offline use, removing songs |
 | `practice-sideways.mjs` | A practice take with the phone sideways: the bars and the practice panel step aside, a floating Stop and the live count replace them, and Stop brings everything back; held upright the panel stays. Fake microphone; needs the sample tab |
 | `wakelock.mjs` | The screen stays on while a song is open: a wake lock is held in the player, asked for again after the page was in the background, and let go in the library. Uses a file fetched by `formats.mjs` |
-| `practice-restart.mjs` | Practice takes started and stopped again, some during the count-in: every count-in clicks 4 times, the cursor stays, and Play after a count-in cut short starts the song at once. Fake microphone; needs the sample tab |
+| `practice-restart.mjs` | Practice takes started and stopped again, some during the count-in: every count-in is one bar of 4 clicks (also after a take stopped mid-bar), the cursor stays, and Play after a count-in cut short starts the song at once. Fake microphone; needs the sample tab |
 | `countin-cursor.mjs` | The cursor stays on the first beat through a practice take's count-in and moves once the song starts. Fake microphone; needs the sample tab |
 | `sound-level.mjs` | What reaches the speakers while an exercise and a song play, alone and one after the other, including an exercise after a song with a track soloed and one muted. Needs the sample tab |
 | `worklet-scope.mjs` | The cause of silent Play on iPhones: alphaTab's worklet files must run to the end, which needs `_N_E` declared in the worklet first. Built app on port 5198 |

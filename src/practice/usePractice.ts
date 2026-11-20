@@ -826,6 +826,14 @@ export function usePractice(
       // first note of a tab, or of the bar that was jumped to.
       let startTick = selected ? selected.startTick : Math.max(0, api.tickPosition - POSITION_SLACK)
       if (!selected && startTick >= songEnd - 1 - POSITION_SLACK) startTick = 0
+      // From the playback position, the take begins at the start of its bar.
+      // Begun mid-bar, alphaTab's count-in would count on to that beat: a
+      // bar of clicks plus one for each beat already gone.
+      if (!selected && startTick > 0) {
+        const at = startTick + POSITION_SLACK
+        const bar = lookup.masterBars.find((b) => at >= b.start && at < b.end)
+        if (bar) startTick = Math.max(0, bar.start - POSITION_SLACK)
+      }
       // Later rounds of the speed trainer play what round 1 played.
       const kept = nextRound ? trainerRef.current.range : undefined
       const range = kept ?? { startTick, endTick: selected ? selected.endTick : songEnd }
