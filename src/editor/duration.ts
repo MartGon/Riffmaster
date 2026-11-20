@@ -1,6 +1,6 @@
 /** Ticks in a quarter note, as alphaTab counts them. */
 export const QUARTER = 960
-export const WHOLE = QUARTER * 4
+const WHOLE = QUARTER * 4
 
 /** Note values the editor offers, as alphaTab's duration numbers (4 is a quarter). */
 export const NOTE_VALUES = [1, 2, 4, 8, 16, 32, 64] as const

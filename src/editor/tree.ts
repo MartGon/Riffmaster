@@ -74,7 +74,7 @@ const NOTE_LINKS = [
  * MusicXML and alphaTex files and cannot be worked out again, so they are
  * dropped.
  */
-export function sanitize(js: ScoreJs): void {
+function sanitize(js: ScoreJs): void {
   for (const track of list(js, 'tracks')) {
     for (const staff of list(track, 'staves')) {
       for (const bar of list(staff, 'bars')) {

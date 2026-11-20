@@ -290,7 +290,7 @@ export function magnitudeSpectrumOf(samples: Float32Array, size: number): Float6
 }
 
 /** How strong a note's harmonics must be together, against the strongest note's, to count as sounding. */
-export const PRESENT_SHARE = 0.15
+const PRESENT_SHARE = 0.15
 /** How strong a note's own fundamental must be, against its strongest low harmonic. */
 const FUNDAMENTAL_SHARE = 0.1
 

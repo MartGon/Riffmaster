@@ -12,7 +12,7 @@ import { syncOnce } from './engine'
 
 const URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
 const KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? ''
-export const syncAvailable = URL !== '' && KEY !== ''
+const syncAvailable = URL !== '' && KEY !== ''
 
 /** Where the sign-in is kept; its presence means the Supabase code is worth loading at start. */
 const AUTH_KEY = 'riffmaster.sync.auth'

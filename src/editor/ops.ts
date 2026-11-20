@@ -62,7 +62,7 @@ function untieFrom(notes: Iterable<Note>): void {
 }
 
 /** Length of a beat in ticks; an empty placeholder beat and a grace note take no time in the bar. */
-export function beatTicks(beat: Beat): number {
+function beatTicks(beat: Beat): number {
   if (beat.isEmpty || beat.graceType !== alphaTab.model.GraceType.None) return 0
   let ticks = rhythmTicks({ value: beat.duration as unknown as Rhythm['value'], dots: beat.dots, triplet: false })
   if (beat.tupletNumerator > 0 && beat.tupletDenominator > 0) {

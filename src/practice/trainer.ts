@@ -14,7 +14,7 @@ export const defaultTrainerSettings: TrainerSettings = { enabled: false, thresho
 export const TRAINER_THRESHOLDS = [0.8, 0.9, 0.95, 1]
 export const TRAINER_STEPS = [0.05, 0.1]
 /** The trainer stops raising the tempo at the written one. */
-export const TRAINER_GOAL = 1
+const TRAINER_GOAL = 1
 
 export interface TrainerOutcome {
   /** Whether the round reached the accuracy needed to move up. */

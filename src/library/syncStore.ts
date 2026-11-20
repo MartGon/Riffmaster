@@ -105,7 +105,7 @@ interface OutboxStore {
 }
 
 /** The id a take gets when its song is merged into another; the same on every device. */
-export function movedTakeId(id: string): string {
+function movedTakeId(id: string): string {
   return `${id}.m`
 }
 

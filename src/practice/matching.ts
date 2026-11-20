@@ -35,7 +35,7 @@ export interface MatchOptions {
   onTimeMs: number
 }
 
-export const defaultMatchOptions: MatchOptions = {
+const defaultMatchOptions: MatchOptions = {
   pitchTolerance: 0.6,
   windowMs: 150,
   onTimeMs: 50,
@@ -62,7 +62,7 @@ export function matchOptionsFor(leeway: TimingLeeway): MatchOptions {
 }
 
 /** Longest a strum takes from its first string to its last (as STRUM_SEC in the detector). */
-export const STRUM_MS = 100
+const STRUM_MS = 100
 
 /** Single notes and chords are scored; a beat with no notes is not. */
 export function isScored(note: ExpectedNote): boolean {
@@ -70,7 +70,7 @@ export function isScored(note: ExpectedNote): boolean {
 }
 
 /** A beat with several notes sounding together. */
-export function isChord(note: ExpectedNote): boolean {
+function isChord(note: ExpectedNote): boolean {
   return new Set(note.midi).size > 1
 }
 

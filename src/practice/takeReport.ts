@@ -97,7 +97,7 @@ export interface TakeAnalysis {
 /** Silence before a note, in ms, for it to count as the first after a break. */
 const BREAK_MS = 400
 /** How far around a missed note to look for what was heard instead. */
-export const NEARBY_MS = 150
+const NEARBY_MS = 150
 
 /**
  * Scores a saved take twice: as the app scored it at the time, from the
@@ -187,10 +187,10 @@ export function signed(ms: number): string {
   return `${value >= 0 ? '+' : ''}${value}`
 }
 /** Candidate pitches as note names, such as "A2/A3". */
-export const pitchNames = (midi: number[]) => midi.map(noteName).join('/')
+const pitchNames = (midi: number[]) => midi.map(noteName).join('/')
 
 /** A written note with its strings and frets; string 1 is the lowest. */
-export function writtenNote(note: TakeExpectedNote): string {
+function writtenNote(note: TakeExpectedNote): string {
   const names = pitchNames(note.midi)
   const places = note.places.map((place) => `s${place.string} f${place.fret}`).join(', ')
   return places ? `${names} ${places}` : names
@@ -392,7 +392,7 @@ export const DELAY_SOURCE_TEXT: Record<string, string> = {
 }
 
 /** An offset in words: "12 ms early", "30 ms late" or "on the beat". */
-export function timingText(ms: number): string {
+function timingText(ms: number): string {
   const value = Math.round(ms)
   if (Math.abs(value) < 5) return 'on the beat'
   return `${Math.abs(value)} ms ${value < 0 ? 'early' : 'late'}`

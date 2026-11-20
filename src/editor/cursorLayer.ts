@@ -17,7 +17,7 @@ export interface CursorBox {
  * bar box (highest string) to the bottom (lowest string), so any string can
  * be found even where it has no note.
  */
-export function cursorBox(api: alphaTab.AlphaTabApi, cursor: Cursor): CursorBox | null {
+function cursorBox(api: alphaTab.AlphaTabApi, cursor: Cursor): CursorBox | null {
   const lookup = api.boundsLookup
   const staff = api.score?.tracks[cursor.track]?.staves[0]
   const beat = staff?.bars[cursor.bar]?.voices[0]?.beats[cursor.beat]

@@ -1,8 +1,8 @@
 /** The commit this build was made from, with a "+" for changes not yet committed. */
-export const BUILD_VERSION = process.env.NEXT_PUBLIC_BUILD_VERSION ?? 'unknown'
+const BUILD_VERSION = process.env.NEXT_PUBLIC_BUILD_VERSION ?? 'unknown'
 
 /** When this build was made, as an ISO date. */
-export const BUILD_TIME = process.env.NEXT_PUBLIC_BUILD_TIME ?? ''
+const BUILD_TIME = process.env.NEXT_PUBLIC_BUILD_TIME ?? ''
 
 /** E.g. "Version 882eb98 · built 19 Nov 2026, 14:32", in the viewer's own time. */
 export function versionText(): string {
