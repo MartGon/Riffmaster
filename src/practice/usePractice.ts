@@ -3,6 +3,7 @@ import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } fro
 import type { TakeRecord } from '../library/types'
 import { isDark, onThemeChange } from '../lib/theme'
 import type { PlayerState } from '../player/usePlayer'
+import { moveAndDraw } from '../player/seek'
 import { defaultDetectorOptions, type DetectedNote, NoteDetector } from './detector'
 import {
   type CalibrationMode,
@@ -213,43 +214,6 @@ function describeMicError(error: unknown): string {
     return 'The audio input is in use by another app.'
   }
   return 'Could not open the audio input.'
-}
-
-/**
- * Resolves once the player has moved to `tick` (having paused first, when
- * `pausing`) and alphaTab has drawn the cursor there, which it does on the
- * frames after the player reports the move. Gives up waiting after a moment,
- * should no report come.
- */
-function seekSettled(api: alphaTab.AlphaTabApi, tick: number, pausing: boolean): Promise<void> {
-  return new Promise((resolve) => {
-    let done = false
-    let stopped = !pausing
-    const settle = () => {
-      if (done) return
-      done = true
-      window.clearTimeout(timer)
-      api.playerStateChanged.off(onState)
-      api.playerPositionChanged.off(onMove)
-      // Two frames on, the cursor is in place.
-      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-    }
-    // The player reports its pause before the move, and other moves come and
-    // go meanwhile; only the move reported after the pause is the one asked for.
-    // alphaTab hands a new listener the current state and position at once;
-    // those are not reports of this pause and move.
-    let listening = false
-    const onState = (args: { state: number }) => {
-      if (listening && args.state !== alphaTab.synth.PlayerState.Playing) stopped = true
-    }
-    const onMove = (args: { isSeek: boolean; currentTick: number }) => {
-      if (listening && stopped && args.isSeek && Math.abs(args.currentTick - tick) < 5) settle()
-    }
-    const timer = window.setTimeout(settle, 500)
-    api.playerStateChanged.on(onState)
-    api.playerPositionChanged.on(onMove)
-    listening = true
-  })
 }
 
 /**
@@ -1034,12 +998,9 @@ export function usePractice(
         }
       }
 
-      // Paused, not stopped: a stop would first send the player back to the
-      // song's start, showing it there for a moment.
-      const playing = api.playerState === alphaTab.synth.PlayerState.Playing
-      const moved = seekSettled(api, seekTick, playing)
-      if (playing) api.pause()
-      api.tickPosition = seekTick
+      // Paused if playing, not stopped: a stop would first send the player
+      // back to the song's start, showing it there for a moment.
+      const moved = moveAndDraw(api, seekTick)
       takeRef.current = take
       patch({ phase: 'recording' })
       // Played only once the cursor is drawn at the start: alphaTab draws it

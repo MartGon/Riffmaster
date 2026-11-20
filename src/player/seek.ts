@@ -1,0 +1,58 @@
+import * as alphaTab from '@coderline/alphatab'
+
+/**
+ * Resolves once the player has moved to `tick` and alphaTab has drawn the
+ * cursor there, which it does on the frames after the player reports the
+ * move. Played next, the cursor then starts from there instead of being
+ * drawn while playing, gliding off from the old place. A player still
+ * playing is paused first. Gives up waiting after a moment, should no
+ * report come.
+ */
+export async function moveAndDraw(api: alphaTab.AlphaTabApi, tick: number): Promise<void> {
+  if (api.playerState === alphaTab.synth.PlayerState.Playing) await paused(api)
+  await moved(api, tick)
+  // Two frames on, the cursor is in place.
+  await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+}
+
+/**
+ * Pauses and resolves once the player reports it. On that report alphaTab
+ * sends the position back to the start of the beat playing; a move sent
+ * before it would be undone.
+ */
+function paused(api: alphaTab.AlphaTabApi): Promise<void> {
+  return waitFor(api.playerStateChanged, (args) => args.state !== alphaTab.synth.PlayerState.Playing, () => api.pause())
+}
+
+function moved(api: alphaTab.AlphaTabApi, tick: number): Promise<void> {
+  return waitFor(
+    api.playerPositionChanged,
+    (args) => args.isSeek && Math.abs(args.currentTick - tick) < 5,
+    () => {
+      api.tickPosition = tick
+    },
+  )
+}
+
+/** Runs `act` and resolves on the first event after it that `matches`, or after half a second. */
+function waitFor<T>(emitter: alphaTab.IEventEmitterOfT<T>, matches: (args: T) => boolean, act: () => void): Promise<void> {
+  return new Promise((resolve) => {
+    let done = false
+    // alphaTab hands a new listener the latest event at once; that one is not a report of `act`.
+    let listening = false
+    const settle = () => {
+      if (done) return
+      done = true
+      window.clearTimeout(timer)
+      emitter.off(on)
+      resolve()
+    }
+    const on = (args: T) => {
+      if (listening && matches(args)) settle()
+    }
+    const timer = window.setTimeout(settle, 500)
+    emitter.on(on)
+    listening = true
+    act()
+  })
+}

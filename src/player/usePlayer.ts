@@ -7,6 +7,7 @@ import type { SongSettings } from '../library/types'
 import { snapSelectionToBars } from '../lib/loopRange'
 import { listSections, type SongSection } from '../lib/sections'
 import { barAtPoint } from './barAtPoint'
+import { moveAndDraw } from './seek'
 import { splitTrackName } from '../lib/trackName'
 import { isDark, onThemeChange } from '../lib/theme'
 import { StaffCursorHandler, systemStaffBand, trimSelection } from './staffBand'
@@ -143,33 +144,6 @@ function countInStart(api: alphaTab.AlphaTabApi): number | null {
   const start = Math.max(bar.start, api.playbackRange?.startTick ?? 0)
   // The player reports a position a tick or so past the one it was sent to.
   return tick - start > 4 ? start : null
-}
-
-/**
- * Resolves once a move of the position has reached the player and the
- * cursor has been drawn there, so playback started next does not draw it
- * gliding off from the old place.
- */
-function seekDrawn(api: alphaTab.AlphaTabApi, tick: number): Promise<void> {
-  return new Promise((resolve) => {
-    let done = false
-    let listening = false
-    const settle = () => {
-      if (done) return
-      done = true
-      window.clearTimeout(timer)
-      api.playerPositionChanged.off(onMove)
-      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-    }
-    const onMove = (args: { isSeek: boolean; currentTick: number }) => {
-      // alphaTab replays the last position to a new listener; that one is not the move.
-      if (listening && args.isSeek && Math.abs(args.currentTick - tick) < 5) settle()
-    }
-    const timer = window.setTimeout(settle, 500)
-    api.playerPositionChanged.on(onMove)
-    listening = true
-    api.tickPosition = tick
-  })
 }
 
 /** Tick at which a bar is first played, or null if playback never reaches it. */
@@ -1001,7 +975,7 @@ export function usePlayer() {
           if (startingPlay.current) return
           startingPlay.current = true
           setState((s) => ({ ...s, currentTick: from }))
-          void seekDrawn(api, from).then(() => {
+          void moveAndDraw(api, from).then(() => {
             startingPlay.current = false
             if (apiRef.current === api && api.playerState !== alphaTab.synth.PlayerState.Playing) api.play()
           })

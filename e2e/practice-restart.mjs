@@ -140,6 +140,31 @@ for (const [round, stopAfter] of [[1, 6000], [2, 4000], [3, 1200], [4, 4000], [5
   }
   check(`take ${round}: the cursor is shown after stopping`, (await cursor()) === 'shown', await cursor())
 }
+// Start pressed while the song plays: the take pauses it and counts in one
+// bar from the start of the bar, the cursor standing still meanwhile.
+await page.click('.play')
+await page.waitForTimeout(3000)
+{
+  const t0 = await now()
+  await start()
+  await page.waitForTimeout(4500)
+  // What is heard in the first moment is the song, still sounding as it is paused.
+  const times = (await onsets(t0, t0 + 4500)).filter((t) => t > 60)
+  const first = t0 + (times[0] ?? 0)
+  const song = await cursorMoves(first + 50)
+  const clicks = times.filter((t) => t0 + t < (song ?? Infinity) - 250).length
+  const countIn = song === null ? null : Math.round(song - first)
+  await stop()
+  await waitIdle().catch(() => {})
+  await page.waitForTimeout(1500)
+  await page.click('text=Clear results').catch(() => {})
+  await page.waitForTimeout(300)
+  check(
+    'a take started while the song plays counts in one bar, the cursor still',
+    clicks === 4 && countIn !== null && countIn > 2200 && countIn < 2900,
+    `${clicks} clicks, cursor first moves ${countIn} ms after the first; heard at ${times.slice(0, 7).join(', ')} ms`,
+  )
+}
 // A take stopped during its count-in, then the panel closed and the song
 // played without a count-in: it must start at once, not count in first.
 await start()
