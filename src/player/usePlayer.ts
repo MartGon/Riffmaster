@@ -126,6 +126,52 @@ function lookupIndexAtTick(lookup: TickLookup, tick: number, hint: number): numb
   return index
 }
 
+/**
+ * Where playback with a count-in should begin: the start of the bar the
+ * position is in (but not before a selection's start), or null when it is
+ * there already. Begun mid-bar, alphaTab's count-in would count on to that
+ * beat: a bar of clicks plus one for each beat already gone.
+ */
+function countInStart(api: alphaTab.AlphaTabApi): number | null {
+  const lookup = api.tickCache
+  if (!lookup) return null
+  const tick = api.tickPosition
+  const index = lookupIndexAtTick(lookup, tick, 0)
+  if (index < 0) return null
+  const bar = lookup.masterBars[index]
+  if (tick >= bar.end) return null
+  const start = Math.max(bar.start, api.playbackRange?.startTick ?? 0)
+  // The player reports a position a tick or so past the one it was sent to.
+  return tick - start > 4 ? start : null
+}
+
+/**
+ * Resolves once a move of the position has reached the player and the
+ * cursor has been drawn there, so playback started next does not draw it
+ * gliding off from the old place.
+ */
+function seekDrawn(api: alphaTab.AlphaTabApi, tick: number): Promise<void> {
+  return new Promise((resolve) => {
+    let done = false
+    let listening = false
+    const settle = () => {
+      if (done) return
+      done = true
+      window.clearTimeout(timer)
+      api.playerPositionChanged.off(onMove)
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+    }
+    const onMove = (args: { isSeek: boolean; currentTick: number }) => {
+      // alphaTab replays the last position to a new listener; that one is not the move.
+      if (listening && args.isSeek && Math.abs(args.currentTick - tick) < 5) settle()
+    }
+    const timer = window.setTimeout(settle, 500)
+    api.playerPositionChanged.on(onMove)
+    listening = true
+    api.tickPosition = tick
+  })
+}
+
 /** Tick at which a bar is first played, or null if playback never reaches it. */
 function firstTickOfBar(lookup: TickLookup, barIndex: number): number | null {
   for (const bar of lookup.masterBars) {
@@ -280,6 +326,8 @@ export function usePlayer() {
   const scoreRef = useRef<HTMLDivElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
   const apiRef = useRef<alphaTab.AlphaTabApi | null>(null)
+  /** Set while Play waits for the jump back to the bar's start before playing. */
+  const startingPlay = useRef(false)
   // Settings of the song being loaded, applied once its score arrives.
   const pendingSettings = useRef<SongSettings | null>(null)
   /** Bars of the current selection, so it can be drawn again on another track. */
@@ -940,7 +988,23 @@ export function usePlayer() {
           // "Playing" with the audio asleep means nothing could be heard:
           // waking it is what the tap was for, not pausing.
           if (asleep && api.playerState === alphaTab.synth.PlayerState.Playing) return
-          api.playPause()
+          if (api.playerState === alphaTab.synth.PlayerState.Playing || api.countInVolume <= 0) {
+            api.playPause()
+            return
+          }
+          // With a count-in, playback goes back to the start of the bar, as a practice take does.
+          const from = countInStart(api)
+          if (from === null) {
+            api.playPause()
+            return
+          }
+          if (startingPlay.current) return
+          startingPlay.current = true
+          setState((s) => ({ ...s, currentTick: from }))
+          void seekDrawn(api, from).then(() => {
+            startingPlay.current = false
+            if (apiRef.current === api && api.playerState !== alphaTab.synth.PlayerState.Playing) api.play()
+          })
         }),
       stop: () => withApi((api) => api.stop()),
       seek: (tick: number) =>

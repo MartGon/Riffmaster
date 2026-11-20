@@ -138,6 +138,47 @@ check('after a count-in cut short, Play without count-in starts the song at once
 await page.waitForTimeout(800)
 check('after practice, normal playback shows the cursor', (await cursor()) === 'shown', await cursor())
 await page.click('.play')
+await page.waitForTimeout(800)
+// Paused mid-bar, Play without a count-in carries on from there.
+const paused = await cursorX()
+await page.click('.play')
+await page.waitForTimeout(150)
+const resumed = await cursorX()
+check('without a count-in, Play carries on where it paused', resumed >= paused, `cursor ${paused} -> ${resumed}`)
+await page.waitForTimeout(1300)
+await page.click('.play')
+await page.waitForTimeout(800)
+// With a count-in, Play goes back to the start of the bar and counts in one bar, as a take does.
+await page.click('button[title="Count-in"]')
+const barX = () => page.evaluate(() => Math.round(document.querySelector('.at-cursor-bar')?.getBoundingClientRect().x ?? NaN))
+// Halfway through the bar, as after a pause there.
+await page.evaluate(() => {
+  const api = window.__riffmaster.api()
+  const bar = api.tickCache.masterBars.find((b) => api.tickPosition >= b.start && api.tickPosition < b.end)
+  api.tickPosition = Math.round((bar.start + bar.end) / 2)
+})
+await page.waitForTimeout(500)
+const midBar = await cursorX()
+const barStart = await barX()
+const t1 = await now()
+await page.click('.play')
+await page.waitForTimeout(4000)
+const heard = await onsets(t1, t1 + 4000)
+const backAt = await page.evaluate((from) => window.__cursor.find(([t]) => t > from + 300)?.[1], t1)
+const songAt = await cursorMoves(t1 + (heard[0] ?? 0) + 50)
+const clicks = heard.filter((t) => t1 + t < (songAt ?? Infinity) - 100).length
+await page.click('.play')
+check(
+  'with a count-in, Play from mid-bar goes back to the start of the bar',
+  // The first beat's cursor sits a little inside the bar line.
+  midBar > barStart + 60 && backAt >= barStart && backAt - barStart < 30,
+  `cursor ${midBar} -> ${backAt}, bar at ${barStart}`,
+)
+check(
+  'with a count-in, Play from mid-bar counts in one bar, 4 clicks',
+  clicks === 4 && songAt !== null && songAt - t1 - heard[0] > 2200 && songAt - t1 - heard[0] < 2900,
+  `${clicks} clicks, song ${songAt === null ? null : Math.round(songAt - t1 - heard[0])} ms after the first; heard at ${heard.slice(0, 7).join(', ')} ms`,
+)
 check('no page errors', errors.length === 0, errors.slice(0, 2).join(' | '))
 await browser.close()
 process.exit(results.every(Boolean) ? 0 : 1)
