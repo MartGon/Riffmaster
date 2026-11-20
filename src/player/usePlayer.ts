@@ -7,7 +7,7 @@ import type { SongSettings } from '../library/types'
 import { snapSelectionToBars } from '../lib/loopRange'
 import { listSections, type SongSection } from '../lib/sections'
 import { barAtPoint } from './barAtPoint'
-import { moveAndDraw } from './seek'
+import { barStartAt, moveAndDraw, playbackRange } from './seek'
 import { splitTrackName } from '../lib/trackName'
 import { isDark, onThemeChange } from '../lib/theme'
 import { StaffCursorHandler, systemStaffBand, trimSelection } from './staffBand'
@@ -135,15 +135,30 @@ function lookupIndexAtTick(lookup: TickLookup, tick: number, hint: number): numb
  */
 function countInStart(api: alphaTab.AlphaTabApi): number | null {
   const lookup = api.tickCache
-  if (!lookup) return null
   const tick = api.tickPosition
-  const index = lookupIndexAtTick(lookup, tick, 0)
-  if (index < 0) return null
-  const bar = lookup.masterBars[index]
-  if (tick >= bar.end) return null
-  const start = Math.max(bar.start, api.playbackRange?.startTick ?? 0)
+  const bar = lookup ? barStartAt(lookup, tick) : null
+  if (bar === null) return null
+  const start = Math.max(bar, api.playbackRange?.startTick ?? 0)
   // The player reports a position a tick or so past the one it was sent to.
   return tick - start > 4 ? start : null
+}
+
+/** First beat of bar `first` and last beat of bar `last` of a track, to highlight those bars. */
+function barsBeats(track: alphaTab.model.Track | undefined, first: number, last: number) {
+  const bars = track?.staves[0]?.bars
+  const start = bars?.[first]?.voices[0]?.beats[0]
+  const end = bars?.[last]?.voices[0]?.beats.at(-1)
+  return start && end ? { start, end } : null
+}
+
+/**
+ * Forgets the beats alphaTab has highlighted. `clearPlaybackRangeHighlight`
+ * only takes the drawing away and keeps the beats; both ends on one beat is
+ * what alphaTab treats as nothing highlighted.
+ */
+function forgetHighlight(api: alphaTab.AlphaTabApi, track: alphaTab.model.Track | undefined) {
+  const anyBeat = track?.staves[0]?.bars[0]?.voices[0]?.beats[0]
+  if (anyBeat) api.highlightPlaybackRange(anyBeat, anyBeat)
 }
 
 /** Tick at which a bar is first played, or null if playback never reaches it. */
@@ -228,12 +243,6 @@ function audioContextOf(api: alphaTab.AlphaTabApi): AudioContext | null {
   }
 }
 
-/**
- * Wakes the audio up. iOS suspends or interrupts it when the page goes to
- * the background, the screen locks, or the audio mode changes (the
- * microphone opening and closing); it can only be resumed from a tap.
- * Returns whether it was asleep.
- */
 const preparedContexts = new WeakSet<BaseAudioContext>()
 
 /**
@@ -285,6 +294,12 @@ function hookAlphaTabLogger(): void {
   }
 }
 
+/**
+ * Wakes the audio up. iOS suspends or interrupts it when the page goes to
+ * the background, the screen locks, or the audio mode changes (the
+ * microphone opening and closing); it can only be resumed from a tap.
+ * Returns whether it was asleep.
+ */
 function wakeAudio(api: alphaTab.AlphaTabApi): boolean {
   const context = audioContextOf(api)
   if (!context || context.state === 'running' || context.state === 'closed') return false
@@ -474,8 +489,7 @@ export function usePlayer() {
       // they are dropped here (see `showTrack` for the highlight).
       selectedBars.current = null
       api.playbackRange = null
-      const anyBeat = firstTrack?.staves[0]?.bars[0]?.voices[0]?.beats[0]
-      if (anyBeat) api.highlightPlaybackRange(anyBeat, anyBeat)
+      forgetHighlight(api, firstTrack)
       const profile = staveProfileFor(firstTrack, loadPrefs().showNotation)
       if (api.settings.display.staveProfile !== profile) {
         api.settings.display.staveProfile = profile
@@ -515,19 +529,16 @@ export function usePlayer() {
       const wanted = restoreSelection.current
       if (!wanted?.drawn || !wanted.midi) return
       restoreSelection.current = null
-      const bars = api.tracks[0]?.staves[0]?.bars ?? []
-      if (bars.length === 0) return
-      const first = Math.min(wanted.first, bars.length - 1)
-      const last = Math.min(wanted.last, bars.length - 1)
-      const startBeat = bars[first].voices[0]?.beats[0]
-      const endBeats = bars[last].voices[0]?.beats ?? []
-      const endBeat = endBeats[endBeats.length - 1]
-      if (!startBeat || !endBeat) return
+      const count = api.tracks[0]?.staves[0]?.bars.length ?? 0
+      const first = Math.min(wanted.first, count - 1)
+      const last = Math.min(wanted.last, count - 1)
+      const beats = barsBeats(api.tracks[0], first, last)
+      if (!beats) return
       try {
         selectedBars.current = { first, last }
         // Applying a range moves the position to its start; keep where it was.
         const tick = api.tickPosition
-        api.highlightPlaybackRange(startBeat, endBeat)
+        api.highlightPlaybackRange(beats.start, beats.end)
         api.applyPlaybackRangeFromHighlight()
         const range = api.playbackRange
         if (range && tick >= range.startTick && tick <= range.endTick) api.tickPosition = tick
@@ -569,35 +580,44 @@ export function usePlayer() {
         const back = rebuilt
         rebuilt = null
         const tracks = stateRef.current.tracks
-        const pick = (flag: 'muted' | 'solo') =>
-          score.tracks.filter((t) => tracks.find((info) => info.index === t.index)?.[flag])
-        const muted = pick('muted')
-        const solo = pick('solo')
-        if (muted.length > 0) api.changeTrackMute(muted, true)
-        if (solo.length > 0) api.changeTrackSolo(solo, true)
-        for (const track of score.tracks) {
-          api.changeTrackVolume([track], tracks.find((info) => info.index === track.index)?.volume ?? 1)
-        }
-        if (back.range) api.playbackRange = back.range as typeof api.playbackRange
+        const info = (index: number) => tracks.find((t) => t.index === index)
+        applyMixer(
+          score,
+          (index) => info(index)?.muted ?? false,
+          (index) => info(index)?.solo ?? false,
+          (index) => info(index)?.volume ?? 1,
+        )
+        if (back.range) api.playbackRange = playbackRange(back.range)
         api.tickPosition = back.tick
         return
       }
-      // The synthesizer keeps mute and solo by channel across loads: a track
-      // soloed in the last song would leave this one silent, its tracks
-      // being on other channels. So they are cleared first, keeping a
-      // track's mute only where it is restored below.
-      api.player?.resetChannelStates()
-      const pick = (indexes: number[] | undefined) => score.tracks.filter((t) => indexes?.includes(t.index))
-      const muted = pick(settings?.mutedTracks)
-      const solo = pick(settings?.soloTracks)
-      if (muted.length > 0) api.changeTrackMute(muted, true)
-      if (solo.length > 0) api.changeTrackSolo(solo, true)
-      // Every track is set, including those at 100%: the synthesizer keeps
-      // a channel's volume across loads, so an old value would linger.
-      for (const track of score.tracks) {
-        api.changeTrackVolume([track], settings?.volumes?.[track.index] ?? 1)
-      }
+      applyMixer(
+        score,
+        (index) => settings?.mutedTracks?.includes(index) ?? false,
+        (index) => settings?.soloTracks?.includes(index) ?? false,
+        (index) => settings?.volumes?.[index] ?? 1,
+      )
     })
+    /**
+     * Sets every track's mute, solo and volume in the synthesizer. It keeps
+     * them by channel across loads: a track soloed in the last song would
+     * leave this one silent, its tracks being on other channels, and an old
+     * volume would linger. So they are cleared first, and every track's
+     * volume is set, including those at 100%.
+     */
+    function applyMixer(
+      score: alphaTab.model.Score,
+      muted: (index: number) => boolean,
+      solo: (index: number) => boolean,
+      volume: (index: number) => number,
+    ) {
+      api.player?.resetChannelStates()
+      const mutedTracks = score.tracks.filter((t) => muted(t.index))
+      const soloTracks = score.tracks.filter((t) => solo(t.index))
+      if (mutedTracks.length > 0) api.changeTrackMute(mutedTracks, true)
+      if (soloTracks.length > 0) api.changeTrackSolo(soloTracks, true)
+      for (const track of score.tracks) api.changeTrackVolume([track], volume(track.index))
+    }
 
     // Should alphaTab still fail to set up its audio worklet (see
     // prepareWorkletScope for the known cause), playback is started again a
@@ -693,6 +713,8 @@ export function usePlayer() {
       }
       // Destroying the old output stops its wait and closes its audio context.
       watchedOutput = null
+      // A reload sent to the old player is never reported now.
+      quietMidiLoads = 0
       api.settings.player.playerMode = alphaTab.PlayerMode.Disabled
       api.updateSettings()
       api.settings.player.playerMode = alphaTab.PlayerMode.EnabledSynthesizer
@@ -722,11 +744,11 @@ export function usePlayer() {
     const leaveCountIn = () => {
       const tick = api.tickPosition
       const range = api.playbackRange
-      const kept = range ? { startTick: range.startTick, endTick: range.endTick } : null
+      const kept = range ? playbackRange(range) : null
       quietMidiLoads++
       api.loadMidiForScore()
       // Loading goes back to the start; these follow it to the synthesizer in order.
-      if (kept) api.playbackRange = kept as typeof api.playbackRange
+      if (kept) api.playbackRange = kept
       api.tickPosition = tick
     }
     api.playerStateChanged.on((args) => {
@@ -1000,10 +1022,7 @@ export function usePlayer() {
           // alphaTab cannot find once another track is shown. It is taken off
           // and drawn again on the new track; the section to play stays as it is.
           const selection = selectedBars.current
-          // alphaTab has no call that forgets the highlighted beats; pointing
-          // both ends at one beat is what it treats as "nothing highlighted".
-          const anyBeat = track.staves[0]?.bars[0]?.voices[0]?.beats[0]
-          if (anyBeat) api.highlightPlaybackRange(anyBeat, anyBeat)
+          forgetHighlight(api, track)
           const profile = staveProfileFor(track, loadPrefs().showNotation)
           if (api.settings.display.staveProfile !== profile) {
             api.settings.display.staveProfile = profile
@@ -1013,11 +1032,8 @@ export function usePlayer() {
             const redraw = () => {
               api.postRenderFinished.off(redraw)
               if (selectedBars.current !== selection || api.tracks[0] !== track) return
-              const bars = track.staves[0]?.bars
-              const startBeat = bars?.[selection.first]?.voices[0]?.beats[0]
-              const endBeats = bars?.[selection.last]?.voices[0]?.beats
-              const endBeat = endBeats?.[endBeats.length - 1]
-              if (startBeat && endBeat) api.highlightPlaybackRange(startBeat, endBeat)
+              const beats = barsBeats(track, selection.first, selection.last)
+              if (beats) api.highlightPlaybackRange(beats.start, beats.end)
             }
             api.postRenderFinished.on(redraw)
           }
@@ -1081,21 +1097,18 @@ export function usePlayer() {
       /** Selects a run of bars as the section to play, optionally repeating it. */
       selectBars: (firstBar: number, lastBar: number, loop: boolean) =>
         withApi((api) => {
-          const bars = api.tracks[0]?.staves[0]?.bars
-          const startBeat = bars?.[firstBar]?.voices[0]?.beats[0]
-          const endBeats = bars?.[Math.max(firstBar, lastBar)]?.voices[0]?.beats
-          const endBeat = endBeats?.[endBeats.length - 1]
-          if (!startBeat || !endBeat) return
+          const beats = barsBeats(api.tracks[0], firstBar, Math.max(firstBar, lastBar))
+          if (!beats) return
           selectedBars.current = { first: firstBar, last: Math.max(firstBar, lastBar) }
-          api.highlightPlaybackRange(startBeat, endBeat)
+          api.highlightPlaybackRange(beats.start, beats.end)
           api.applyPlaybackRangeFromHighlight()
           // A bar of a single beat looks like "nothing selected" to alphaTab,
           // so its range is set from the bar's own ticks instead.
-          if (startBeat === endBeat && api.tickCache) {
+          if (beats.start === beats.end && api.tickCache) {
             const start = firstTickOfBar(api.tickCache, firstBar)
             const end = api.tickCache.masterBars.find((bar) => bar.masterBar.index === lastBar)?.end
             if (start !== null && end !== undefined) {
-              api.playbackRange = { startTick: start, endTick: end } as typeof api.playbackRange
+              api.playbackRange = playbackRange({ startTick: start, endTick: end })
             }
           }
           const tick = api.playbackRange?.startTick

@@ -56,3 +56,16 @@ function waitFor<T>(emitter: alphaTab.IEventEmitterOfT<T>, matches: (args: T) =>
     act()
   })
 }
+
+/** Start of the bar played at `tick`, or null when no bar is (past the song's end). */
+export function barStartAt(lookup: NonNullable<alphaTab.AlphaTabApi['tickCache']>, tick: number): number | null {
+  return lookup.masterBars.find((bar) => tick >= bar.start && tick < bar.end)?.start ?? null
+}
+
+/** A playback range for alphaTab, from `startTick` up to `endTick`. */
+export function playbackRange(range: { startTick: number; endTick: number }): alphaTab.synth.PlaybackRange {
+  const made = new alphaTab.synth.PlaybackRange()
+  made.startTick = range.startTick
+  made.endTick = range.endTick
+  return made
+}

@@ -3,7 +3,7 @@ import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } fro
 import type { TakeRecord } from '../library/types'
 import { isDark, onThemeChange } from '../lib/theme'
 import type { PlayerState } from '../player/usePlayer'
-import { moveAndDraw } from '../player/seek'
+import { barStartAt, moveAndDraw, playbackRange } from '../player/seek'
 import { defaultDetectorOptions, type DetectedNote, NoteDetector } from './detector'
 import {
   type CalibrationMode,
@@ -782,33 +782,18 @@ export function usePractice(
         patch({ error: 'Practice mode listens for pitched notes, so it cannot score a drum track.' })
         return
       }
-      // The take covers the selected bars, or runs from the playback
-      // position to the end. A position at the very end starts over.
+      // The take covers the selected bars, or runs from the start of the bar
+      // at the playback position to the end; past the end, from the top.
+      // Begun mid-bar, alphaTab's count-in would count on to that beat: a
+      // bar of clicks plus one for each beat already gone. Later rounds of
+      // the speed trainer play what round 1 played.
       const songEnd = lookup.masterBars[lookup.masterBars.length - 1]?.end ?? 0
       const selected = api.playbackRange
-      // The player reports a position one tick later than the one it was
-      // given, so a note exactly at the position would be left out: the
-      // first note of a tab, or of the bar that was jumped to.
-      let startTick = selected ? selected.startTick : Math.max(0, api.tickPosition - POSITION_SLACK)
-      if (!selected && startTick >= songEnd - 1 - POSITION_SLACK) startTick = 0
-      // From the playback position, the take begins at the start of its bar.
-      // Begun mid-bar, alphaTab's count-in would count on to that beat: a
-      // bar of clicks plus one for each beat already gone.
-      if (!selected && startTick > 0) {
-        const at = startTick + POSITION_SLACK
-        const bar = lookup.masterBars.find((b) => at >= b.start && at < b.end)
-        if (bar) startTick = Math.max(0, bar.start - POSITION_SLACK)
+      const atEnd = api.tickPosition >= songEnd - 1 - POSITION_SLACK
+      const range = (nextRound ? trainerRef.current.range : undefined) ?? {
+        startTick: selected ? selected.startTick : atEnd ? 0 : (barStartAt(lookup, api.tickPosition) ?? 0),
+        endTick: selected ? selected.endTick : songEnd,
       }
-      // Later rounds of the speed trainer play what round 1 played.
-      const kept = nextRound ? trainerRef.current.range : undefined
-      const range = kept ?? { startTick, endTick: selected ? selected.endTick : songEnd }
-      // The player itself goes to the bar's start: sent to the few ticks
-      // before it, the cursor and the bar's highlight would show the bar
-      // before for a moment.
-      const barAt = lookup.masterBars.find(
-        (b) => b.start > range.startTick && b.start <= range.startTick + POSITION_SLACK,
-      )
-      const seekTick = barAt ? barAt.start : range.startTick
       // Read from the player itself: the trainer may have changed the speed a moment ago.
       const speed = api.playbackSpeed
       const expected = collectExpected(lookup, track.index, speed, range)
@@ -894,7 +879,7 @@ export function usePractice(
       api.isLooping = looping
       // Looping without a selection goes round from the starting point to the end.
       const ownRange = looping && !selected
-      if (ownRange) api.playbackRange = { startTick: seekTick, endTick: range.endTick } as typeof api.playbackRange
+      if (ownRange) api.playbackRange = playbackRange(range)
       if (kind === 'measure') {
         // Only the practised track sounds, so the microphone hears exactly
         // the notes the tab expects.
@@ -940,12 +925,8 @@ export function usePractice(
           }
           return
         }
-        // alphaTab occasionally plays on past the end of a loop instead of
-        // going back; then the take sends it back itself.
-        if (looping && args.currentTick > range.endTick + 480) {
-          api.tickPosition = seekTick
-          return
-        }
+        // Played on past the end of a loop, which the player then sends back.
+        if (looping && args.currentTick > range.endTick + 480) return
         if (args.currentTick <= range.startTick) return
         pass.anchors.push(performance.now() - args.currentTime)
         if (args.currentTime > pass.reachedMs) pass.reachedMs = args.currentTime
@@ -1000,7 +981,7 @@ export function usePractice(
 
       // Paused if playing, not stopped: a stop would first send the player
       // back to the song's start, showing it there for a moment.
-      const moved = moveAndDraw(api, seekTick)
+      const moved = moveAndDraw(api, range.startTick)
       takeRef.current = take
       patch({ phase: 'recording' })
       // Played only once the cursor is drawn at the start: alphaTab draws it
