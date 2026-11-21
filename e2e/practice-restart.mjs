@@ -145,11 +145,34 @@ for (const [round, stopAfter] of [[1, 6000], [2, 4000], [3, 1200], [4, 4000], [5
 await page.click('.play')
 await page.waitForTimeout(3000)
 {
+  // When the player reports playing again after the pause: the count-in begins.
+  await page.evaluate(() => {
+    window.__countInAt = null
+    const api = window.__riffmaster.api()
+    let paused = false
+    api.playerStateChanged.on((args) => {
+      if (args.state !== 1) paused = true
+      else if (paused && window.__countInAt === null) window.__countInAt = performance.now()
+    })
+  })
   const t0 = await now()
   await start()
   await page.waitForTimeout(4500)
   // What is heard in the first moment is the song, still sounding as it is paused.
   const times = (await onsets(t0, t0 + 4500)).filter((t) => t > 60)
+  // The first click can follow the song's last sound within a few ms, too
+  // close for an onset to be told apart. Sound when the count-in begins,
+  // before any onset found, is that click.
+  const masked = await page.evaluate(([t0, firstFound]) => {
+    const at = window.__countInAt
+    if (at === null || (firstFound !== undefined && t0 + firstFound < at + 150)) return null
+    const loud = window.__trace.some(([t, peak]) => t >= at - 30 && t <= at + 60 && peak > 0.05)
+    return loud ? Math.round(at - t0) : null
+  }, [t0, times[0]])
+  if (masked !== null) {
+    console.log(`      the first click, at ${masked} ms, sounded as the song stopped`)
+    times.unshift(masked)
+  }
   const first = t0 + (times[0] ?? 0)
   const song = await cursorMoves(first + 50)
   const clicks = times.filter((t) => t0 + t < (song ?? Infinity) - 250).length
