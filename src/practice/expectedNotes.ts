@@ -49,12 +49,14 @@ export function buildTimeMap(lookup: TickLookup): (tick: number) => number {
  * Lists the notes a track should play, in playback order, optionally limited
  * to a range of ticks. Times are in milliseconds at the given playback speed.
  * Rests, tied continuations, muted "dead" notes and grace notes are left out.
+ * Pitches are shifted by `pitch` semitones, as the song is played.
  */
 export function collectExpected(
   lookup: TickLookup,
   trackIndex: number,
   speed: number,
   range: { startTick: number; endTick: number } | null,
+  pitch = 0,
 ): TabNote[] {
   const timeAt = buildTimeMap(lookup)
   const byTick = new Map<number, TabNote>()
@@ -79,7 +81,7 @@ export function collectExpected(
           byTick.set(tick, entry)
         }
         for (const note of notes) {
-          entry.midi.push(note.realValue)
+          entry.midi.push(note.realValue + pitch)
           entry.notes.push(note)
         }
       }

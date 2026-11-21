@@ -15,6 +15,8 @@ interface Props {
   tick: number
   /** Fingers to show in the dots in place of note names; null when fingering is off. */
   fingerings: Fingerings | null
+  /** Semitones the song is shifted by; notes are named as they sound. */
+  pitch?: number
 }
 
 const ROW = 19
@@ -32,7 +34,7 @@ function upcoming(beat: Beat): Beat | null {
 }
 
 /** A neck diagram showing where the notes being played sit, and where the next ones are. */
-export function Fretboard({ api, track, isPlaying, tick, fingerings }: Props) {
+export function Fretboard({ api, track, isPlaying, tick, fingerings, pitch = 0 }: Props) {
   const [played, setPlayed] = useState<Beat | null>(null)
   const [width, setWidth] = useState(0)
   /** Counts loaded songs, so what depends on the song is worked out again. */
@@ -120,7 +122,7 @@ export function Fretboard({ api, track, isPlaying, tick, fingerings }: Props) {
   /** What is written in a dot: the finger when fingering is on, else the note's name. */
   const dotLabel = (dot: NeckDot) => {
     if (dot.dead) return '×'
-    if (!fingerings) return pitchClassName(dot.midi)
+    if (!fingerings) return pitchClassName(dot.midi + pitch)
     // 0 is the usual sign for an open string.
     return dot.fret <= capo ? '0' : String(fingerOf(dot)?.finger ?? '')
   }
@@ -134,7 +136,7 @@ export function Fretboard({ api, track, isPlaying, tick, fingerings }: Props) {
     ? now
         .map((dot) => {
           const finger = fingerOf(dot)
-          return `${pitchClassName(dot.midi)} on string ${dot.row + 1}, ${dot.fret === 0 ? 'open' : `fret ${dot.fret}`}${finger ? `, ${fingerName(finger.finger)}` : ''}`
+          return `${pitchClassName(dot.midi + pitch)} on string ${dot.row + 1}, ${dot.fret === 0 ? 'open' : `fret ${dot.fret}`}${finger ? `, ${fingerName(finger.finger)}` : ''}`
         })
         .join('; ')
     : 'no notes sounding'
@@ -171,7 +173,7 @@ export function Fretboard({ api, track, isPlaying, tick, fingerings }: Props) {
           <g key={row}>
             <line className="neck-string" x1={nut} x2={nut + frets * fretWidth} y1={rowY(row)} y2={rowY(row)} />
             <text className="neck-label" x={LABELS / 2} y={rowY(row) + 4} textAnchor="middle">
-              {pitchClassName(midi + capo)}
+              {pitchClassName(midi + capo + pitch)}
             </text>
           </g>
         ))}

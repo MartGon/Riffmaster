@@ -62,6 +62,8 @@ export interface PlayerState {
   showNotation: boolean
   /** Overall volume as a factor, 1 being full. */
   masterVolume: number
+  /** Semitones the pitched tracks are shifted by in playback and practice; the tab is unchanged. */
+  pitch: number
   /** Named parts of the song, as marked in the file. */
   sections: SongSection[]
   /** Bar the playback position is in, counted from 0. */
@@ -90,6 +92,7 @@ const initialState: PlayerState = {
   countIn: false,
   showNotation: false,
   masterVolume: 1,
+  pitch: 0,
   sections: [],
   currentBar: 0,
 }
@@ -116,6 +119,19 @@ function describeTrack(track: alphaTab.model.Track): TrackInfo {
 }
 
 type TickLookup = NonNullable<alphaTab.AlphaTabApi['tickCache']>
+
+/** The furthest a song can be shifted, in semitones either way. */
+export const MAX_PITCH = 12
+
+function clampPitch(pitch: number | undefined): number {
+  return Number.isFinite(pitch) ? Math.max(-MAX_PITCH, Math.min(MAX_PITCH, Math.round(pitch as number))) : 0
+}
+
+/** Shifts every pitched track of the song; drums keep their sounds. */
+function applyPitch(api: alphaTab.AlphaTabApi, score: alphaTab.model.Score, pitch: number) {
+  const pitched = score.tracks.filter((track) => !track.staves.some((staff) => staff.isPercussion))
+  if (pitched.length > 0) api.changeTrackTranspositionPitch(pitched, pitch)
+}
 
 /** Index into the lookup's bars of the one being played at `tick`, searching outwards from `hint`. */
 function lookupIndexAtTick(lookup: TickLookup, tick: number, hint: number): number {
@@ -475,6 +491,7 @@ export function usePlayer() {
     api.scoreLoaded.on((score) => {
       const settings = pendingSettings.current
       const speed = clampSpeed(settings?.speed ?? 1)
+      const pitch = clampPitch(settings?.pitch)
       const kept = keepAfterEdit.current
       api.playbackSpeed = speed
       api.isLooping = kept?.isLooping ?? false
@@ -512,6 +529,7 @@ export function usePlayer() {
         activeTrack: first,
         baseTempo: score.tempo,
         speed,
+        pitch,
         isLooping: kept?.isLooping ?? false,
         hasLoopRange: false,
         isPlaying: false,
@@ -586,6 +604,7 @@ export function usePlayer() {
           (index) => info(index)?.muted ?? false,
           (index) => info(index)?.solo ?? false,
           (index) => info(index)?.volume ?? 1,
+          stateRef.current.pitch,
         )
         if (back.range) api.playbackRange = playbackRange(back.range)
         api.tickPosition = back.tick
@@ -596,11 +615,12 @@ export function usePlayer() {
         (index) => settings?.mutedTracks?.includes(index) ?? false,
         (index) => settings?.soloTracks?.includes(index) ?? false,
         (index) => settings?.volumes?.[index] ?? 1,
+        clampPitch(settings?.pitch),
       )
     })
     /**
-     * Sets every track's mute, solo and volume in the synthesizer. It keeps
-     * them by channel across loads: a track soloed in the last song would
+     * Sets every track's mute, solo, volume and pitch shift in the
+     * synthesizer. It keeps them by channel across loads: a track soloed in the last song would
      * leave this one silent, its tracks being on other channels, and an old
      * volume would linger. So they are cleared first, and every track's
      * volume is set, including those at 100%.
@@ -610,6 +630,7 @@ export function usePlayer() {
       muted: (index: number) => boolean,
       solo: (index: number) => boolean,
       volume: (index: number) => number,
+      pitch: number,
     ) {
       api.player?.resetChannelStates()
       const mutedTracks = score.tracks.filter((t) => muted(t.index))
@@ -617,6 +638,7 @@ export function usePlayer() {
       if (mutedTracks.length > 0) api.changeTrackMute(mutedTracks, true)
       if (soloTracks.length > 0) api.changeTrackSolo(soloTracks, true)
       for (const track of score.tracks) api.changeTrackVolume([track], volume(track.index))
+      if (pitch !== 0) applyPitch(api, score, pitch)
     }
 
     // Should alphaTab still fail to set up its audio worklet (see
@@ -957,6 +979,7 @@ export function usePlayer() {
             mutedTracks: pick('muted'),
             soloTracks: pick('solo'),
             volumes,
+            pitch: current.pitch,
           }
           // A second edit can come before the first one's song is ready; the
           // position and selection to keep are still those from before the first.
@@ -1013,6 +1036,13 @@ export function usePlayer() {
           const next = clampSpeed(speed)
           api.playbackSpeed = next
           setState((s) => ({ ...s, speed: next }))
+        }),
+      /** Shifts the song by a number of semitones, to play it on a guitar tuned differently. */
+      setPitch: (pitch: number) =>
+        withApi((api) => {
+          const next = clampPitch(pitch)
+          if (api.score) applyPitch(api, api.score, next)
+          setState((s) => ({ ...s, pitch: next }))
         }),
       showTrack: (index: number) =>
         withApi((api) => {

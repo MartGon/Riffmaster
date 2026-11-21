@@ -1936,6 +1936,23 @@ kbd {
   padding: 0 6px 0 10px;
 }
 
+.tuning-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 0 6px 0 10px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.tuning-picker select {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  font-size: 0.85rem;
+}
+
 .volume-value {
   min-width: 3.2em;
   text-align: right;

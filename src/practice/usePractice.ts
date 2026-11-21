@@ -177,6 +177,8 @@ interface Take {
   /** The latest scored pass, kept for the end of a looped take. */
   lastOutcome: PassOutcome | null
   speed: number
+  /** Semitones the song was shifted by when the take began. */
+  pitch: number
   sawPlaying: boolean
   /** Set when the player ended the take by hand rather than by reaching the end. */
   userStopped: boolean
@@ -796,7 +798,7 @@ export function usePractice(
       }
       // Read from the player itself: the trainer may have changed the speed a moment ago.
       const speed = api.playbackSpeed
-      const expected = collectExpected(lookup, track.index, speed, range)
+      const expected = collectExpected(lookup, track.index, speed, range, current.pitch)
       const timeAt = buildTimeMap(lookup)
       if (expected.filter(isScored).length === 0) {
         endTrainer(null)
@@ -867,6 +869,7 @@ export function usePractice(
         loopMs: (timeAt(range.endTick) - timeAt(range.startTick)) / speed,
         lastOutcome: null,
         speed,
+        pitch: current.pitch,
         sawPlaying: false,
         userStopped: false,
         ending: false,
@@ -1012,11 +1015,11 @@ export function usePractice(
     finish()
   }, [endTrainer, finish])
 
-  // Changing the tempo mid-take would invalidate the expected note times.
+  // Changing the tempo or the tuning mid-take would invalidate the notes expected.
   useEffect(() => {
     const take = takeRef.current
-    if (take && take.speed !== player.speed) stop()
-  }, [player.speed, stop])
+    if (take && (take.speed !== player.speed || take.pitch !== player.pitch)) stop()
+  }, [player.speed, player.pitch, stop])
 
   useEffect(
     () => () => {
@@ -1041,6 +1044,7 @@ export function usePractice(
               trackIndex,
               speed,
               api.playbackRange ?? { startTick: Math.max(0, api.tickPosition - POSITION_SLACK), endTick: Number.POSITIVE_INFINITY },
+              playerRef.current.pitch,
             ).map((note) => ({
               tick: note.tick,
               timeMs: note.timeMs,

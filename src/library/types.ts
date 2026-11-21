@@ -8,6 +8,12 @@ export interface SongSettings {
   soloTracks: number[]
   /** Volume of each track as a factor, 1 being as written; tracks at 1 are left out. Missing in older records. */
   volumes?: Record<number, number>
+  /**
+   * Semitones every pitched track is shifted by when played and practised, so
+   * the song can be played on a guitar tuned differently from the tab. The
+   * tab itself is unchanged. Missing in older records, meaning 0.
+   */
+  pitch?: number
 }
 
 export const defaultSongSettings: SongSettings = {

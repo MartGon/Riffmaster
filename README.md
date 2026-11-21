@@ -11,6 +11,9 @@ offline once a song has been opened.
 
 - **Playback:** tab and standard notation, tempo control, looping a selection of bars,
   section markers, a mixer with master and per-track volume, and muting tracks.
+- **Tuning:** play a song on a guitar tuned differently from the tab, such as an
+  E♭-standard song in E standard. The song sounds, is scored and is tuned for that many
+  semitones up or down, while the frets in the tab stay the same.
 - **Practice scoring:** play along and get a score per note, chord and bar, with live
   marks for on time, early, late and missed. A chord counts when each of its notes is
   heard at an octave the tab writes it in, so a different chord is caught. Takes are kept as a history per song, with the

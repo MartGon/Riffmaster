@@ -14,6 +14,7 @@ import { ThemeToggle } from './components/ThemeToggle'
 import { TrackList } from './components/TrackList'
 import { Transport } from './components/Transport'
 import { TunerPanel } from './components/TunerPanel'
+import { TuningPicker } from './components/TuningPicker'
 import { isAppleTouch, preferPlayback } from './lib/audioSession'
 import { loadPrefs, MAX_VOLUME, savePrefs } from './lib/prefs'
 import { useWakeLock } from './lib/wakeLock'
@@ -127,7 +128,13 @@ export default function App() {
     [editorDirty],
   )
   const activeTrack = state.tracks.find((track) => track.index === state.activeTrack)
-  const tuner = useTuner(activeTrack?.tuning ?? [])
+  // The tuning the guitar needs to play along: the track's, shifted with the song.
+  const writtenTuning = activeTrack?.tuning
+  const guitarTuning = useMemo(
+    () => (writtenTuning ?? []).map((midi) => midi + state.pitch),
+    [writtenTuning, state.pitch],
+  )
+  const tuner = useTuner(guitarTuning)
   const [fretboardOpen, setFretboardOpen] = useState(() => loadPrefs().showFretboard)
   const [fingeringOn, setFingeringOn] = useState(() => loadPrefs().showFingering)
   const fingersRef = useRef<HTMLDivElement>(null)
@@ -251,11 +258,12 @@ export default function App() {
         mutedTracks: [],
         soloTracks: [],
         volumes: {},
+        pitch: state.pitch,
       })
     } catch {
       setNotice('The original file could not be restored.')
     }
-  }, [actions, editor.actions, state.activeTrack, state.speed])
+  }, [actions, editor.actions, state.activeTrack, state.pitch, state.speed])
 
   const settingsJson = ready
     ? JSON.stringify({
@@ -266,6 +274,8 @@ export default function App() {
         volumes: Object.fromEntries(
           state.tracks.filter((t) => t.volume !== 1).map((t) => [t.index, t.volume]),
         ),
+        // Left out at 0, so songs saved before it existed are not rewritten.
+        ...(state.pitch !== 0 && { pitch: state.pitch }),
       } satisfies SongSettings)
     : null
   useEffect(() => {
@@ -551,6 +561,14 @@ export default function App() {
             </label>
           )}
           {ready && (
+            <TuningPicker
+              tuning={activeTrack?.tuning ?? []}
+              pitch={state.pitch}
+              onChange={actions.setPitch}
+              disabled={practiceBusy}
+            />
+          )}
+          {ready && (
             <TrackList
               tracks={state.tracks}
               activeTrack={state.activeTrack}
@@ -623,11 +641,12 @@ export default function App() {
           isPlaying={state.isPlaying}
           tick={state.currentTick}
           fingerings={fingerings}
+          pitch={state.pitch}
         />
       )}
 
       {ready && tuner.state.open && (
-        <TunerPanel state={tuner.state} tuning={activeTrack?.tuning ?? []} />
+        <TunerPanel state={tuner.state} tuning={guitarTuning} />
       )}
 
       {ready && picking && (

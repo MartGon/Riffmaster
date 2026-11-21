@@ -31,6 +31,7 @@ They need:
 | `wake.mjs` | Playback after the audio was suspended, as iOS does; stalled playback |
 | `fingering.mjs` | Suggested fingers: numbers in the tab and on the fretboard, other tracks, the editor, phone sizes |
 | `exercises.mjs` | Built-in exercises: the dialog, scales, finger exercises, chords, the library, phone size, and a practice take on an exercise with its take report (also at phone size). Needs no tab file. `node exercises.mjs ui\|practice\|all` |
+| `tuning.mjs` | The Tuning list: choices named after the tuning they need, the output heard shifted (pitch read from what reaches the speakers), practice expecting and scoring the shifted notes, the tuner following, the choice kept with the song. Dev server on 5173 (or APP_URL); needs no tab file. `node tuning.mjs ui\|practice\|all` |
 | `mixer.mjs` | Master and track volumes, remembered per device and per song; the app's name |
 | `editor.mjs` | The tab editor: typing, undo, clicks, copy and paste, bars, saving and restoring, the unsaved-changes question, new tabs, phone size. `node editor.mjs song\|new\|phone\|all` |
 | `theme.mjs` | The theme switch: system, light and dark, remembered after a reload and in other tabs, the score re-coloured |
