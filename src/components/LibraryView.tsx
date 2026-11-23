@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import type { SongPractice } from '../library/db'
 import type { Song } from '../library/types'
 import { versionText } from '../lib/version'
@@ -16,6 +17,8 @@ interface Props {
   onNew: () => void
   /** Shows the built-in exercises. */
   onExercises: () => void
+  /** Today's practice plan, shown above the list. */
+  plan: ReactNode
 }
 
 function formatOpened(timestamp: number): string {
@@ -32,7 +35,7 @@ function practiceText(practice: SongPractice | undefined): string {
   return `${takes}, best ${Math.round(practice.best * 100)}%`
 }
 
-export function LibraryView({ songs, practice, busy, onOpen, onDelete, onAdd, onNew, onExercises }: Props) {
+export function LibraryView({ songs, practice, busy, onOpen, onDelete, onAdd, onNew, onExercises, plan }: Props) {
   if (songs === null) return <div className="library" />
 
   if (songs.length === 0) {
@@ -84,6 +87,7 @@ export function LibraryView({ songs, practice, busy, onOpen, onDelete, onAdd, on
           </button>
         </div>
       </div>
+      {plan}
       <ul className="songs">
         {songs.map((song) => (
           <li key={song.id} className="song-row">

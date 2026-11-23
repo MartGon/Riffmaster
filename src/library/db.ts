@@ -310,6 +310,12 @@ export async function listTakes(songId: string): Promise<TakeRecord[]> {
   return takes.sort((a, b) => a.at - b.at)
 }
 
+/** Every practice take in the library, oldest first. */
+export async function listAllTakes(): Promise<TakeRecord[]> {
+  const takes = await (await db()).getAll('takes')
+  return takes.sort((a, b) => a.at - b.at)
+}
+
 /** Forgets a song's practice takes for one track. */
 export async function clearTakes(songId: string, trackIndex: number): Promise<void> {
   const tx = (await db()).transaction(['takes', 'outbox'], 'readwrite')

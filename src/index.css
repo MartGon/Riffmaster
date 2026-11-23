@@ -2135,3 +2135,177 @@ kbd {
   opacity: 0.85;
   box-shadow: 0 2px 10px rgb(0 0 0 / 0.3);
 }
+
+/* Today's practice plan */
+.plan {
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.plan-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.plan-head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.plan-progress,
+.plan-minutes span {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.plan-minutes {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.plan-finished {
+  margin: 10px 0 0;
+  color: var(--grade-ok);
+  font-size: 0.9rem;
+}
+
+.plan-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plan-step button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.plan-step button:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.plan-step.done .plan-title {
+  text-decoration: line-through;
+}
+
+.plan-step.done button,
+.plan-step.skipped button {
+  opacity: 0.6;
+}
+
+.plan-kind {
+  flex: 0 0 68px;
+  color: var(--accent-strong);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.plan-kind.review {
+  color: var(--grade-ok);
+}
+
+.plan-kind.warmup {
+  color: var(--text-muted);
+}
+
+.plan-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.plan-title {
+  overflow-wrap: anywhere;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.plan-detail {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.plan-reason {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.plan-time {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.plan-bar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px 4px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--accent-soft);
+  font-size: 0.88rem;
+}
+
+.plan-bar.done {
+  background: color-mix(in srgb, var(--grade-ok) 16%, transparent);
+}
+
+.plan-bar-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-clock {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.plan-clock.over {
+  color: var(--accent-strong);
+}
+
+.immersive .plan-bar {
+  display: none;
+}
+
+@media (max-height: 500px) {
+  .plan-bar {
+    gap: 6px;
+    padding: 0 4px 0 12px;
+    font-size: 0.8rem;
+  }
+
+  .plan-bar .toggle,
+  .plan-bar .icon-button {
+    min-height: 28px;
+    padding-block: 2px;
+  }
+}

@@ -34,6 +34,8 @@ export interface TrackInfo {
 
 export interface PlayerState {
   status: 'empty' | 'loading' | 'ready'
+  /** The last song asked for could not be opened; the player still holds the one before it. */
+  loadFailed: boolean
   /** Message from the last failed action, shown until dismissed or the next load. */
   error: string | null
   title: string
@@ -72,6 +74,7 @@ export interface PlayerState {
 
 const initialState: PlayerState = {
   status: 'empty',
+  loadFailed: false,
   error: null,
   title: '',
   artist: '',
@@ -165,6 +168,26 @@ function barsBeats(track: alphaTab.model.Track | undefined, first: number, last:
   const start = bars?.[first]?.voices[0]?.beats[0]
   const end = bars?.[last]?.voices[0]?.beats.at(-1)
   return start && end ? { start, end } : null
+}
+
+/** First bar with a single note to play and score, or -1. */
+function firstSingleNoteBar(track: alphaTab.model.Track | undefined): number {
+  const bars = track?.staves[0]?.bars ?? []
+  return bars.findIndex((bar) =>
+    bar.voices.some((voice) =>
+      voice.beats.some(
+        (beat) =>
+          !beat.isRest &&
+          beat.graceType === 0 &&
+          beat.notes.filter((note) => !note.isDead && !note.isTieDestination).length === 1,
+      ),
+    ),
+  )
+}
+
+/** Whether a track has notes that a first go at the song can be scored on. */
+function canLearnOn(track: alphaTab.model.Track): boolean {
+  return !track.staves.some((staff) => staff.isPercussion) && firstSingleNoteBar(track) >= 0
 }
 
 /**
@@ -348,6 +371,19 @@ export function usePlayer() {
    * edited song has been laid out, and applied once its MIDI exists.
    */
   const restoreSelection = useRef<{ first: number; last: number; drawn: boolean; midi: boolean } | null>(null)
+  /**
+   * Bars to loop as soon as the song being loaded can show and play them.
+   * `score` is set once that song has arrived, so a drawing of the song before it does not count.
+   */
+  const loopAfterLoad = useRef<{
+    first: number
+    last: number
+    /** Starts at the first bar with notes to play, on a track that has some, instead of at `first`. */
+    firstPlayed?: boolean
+    score: alphaTab.model.Score | null
+    drawn: boolean
+    midi: boolean
+  } | null>(null)
   const [api, setApi] = useState<alphaTab.AlphaTabApi | null>(null)
   const [state, setState] = useState<PlayerState>(() => ({ ...initialState, ...loadPrefs() }))
   /**
@@ -478,9 +514,11 @@ export function usePlayer() {
       if (error instanceof alphaTab.FileLoadError) return
       // A failed load leaves the previous score (if any) in place. alphaTab
       // logs the technical detail to the console.
+      loopAfterLoad.current = null
       setState((s) => ({
         ...s,
         status: api.score ? 'ready' : 'empty',
+        loadFailed: s.loadFailed || s.status === 'loading',
         error:
           s.status === 'loading'
             ? 'This file could not be opened. It may be damaged or in a format that is not supported.'
@@ -489,6 +527,7 @@ export function usePlayer() {
     })
 
     api.scoreLoaded.on((score) => {
+      if (loopAfterLoad.current) loopAfterLoad.current.score = score
       const settings = pendingSettings.current
       const speed = clampSpeed(settings?.speed ?? 1)
       const pitch = clampPitch(settings?.pitch)
@@ -496,10 +535,13 @@ export function usePlayer() {
       api.playbackSpeed = speed
       api.isLooping = kept?.isLooping ?? false
       const wanted = settings?.trackIndex ?? null
-      const first =
+      let first =
         wanted !== null && score.tracks.some((track) => track.index === wanted)
           ? wanted
           : defaultTrackIndex(score)
+      if (loopAfterLoad.current?.firstPlayed && !canLearnOn(score.tracks[first])) {
+        first = score.tracks.find(canLearnOn)?.index ?? first
+      }
       const firstTrack = score.tracks.find((track) => track.index === first)
       // A selection belongs to the song it was made in. alphaTab keeps both
       // the section to play and the highlighted beats across a load, so
@@ -517,6 +559,7 @@ export function usePlayer() {
       const solo = new Set(settings?.soloTracks ?? [])
       patch({
         status: 'ready',
+        loadFailed: false,
         error: null,
         title: score.title || 'Untitled',
         artist: score.artist,
@@ -565,7 +608,24 @@ export function usePlayer() {
         console.warn('The selection could not be put back after an edit', error)
       }
     }
+    /** Loops the bars asked for when the song was loaded, once it is drawn and playable. */
+    const applyLoopAfterLoad = () => {
+      const wanted = loopAfterLoad.current
+      if (!wanted?.drawn || !wanted.midi) return
+      loopAfterLoad.current = null
+      const count = api.tracks[0]?.staves[0]?.bars.length ?? 0
+      if (count === 0) return
+      // The song may have been edited to fewer bars since the plan was made.
+      const from = wanted.firstPlayed ? Math.max(0, firstSingleNoteBar(api.tracks[0])) : wanted.first
+      const first = Math.min(from, count - 1)
+      actionsRef.current?.selectBars(first, Math.min(first + wanted.last - wanted.first, count - 1), true)
+      if (viewportRef.current) scrollToPosition(api, viewportRef.current)
+    }
     const onDrawn = () => {
+      if (loopAfterLoad.current?.score && loopAfterLoad.current.score === api.score) {
+        loopAfterLoad.current.drawn = true
+        applyLoopAfterLoad()
+      }
       if (!restoreSelection.current) return
       restoreSelection.current.drawn = true
       putBackSelection()
@@ -617,6 +677,10 @@ export function usePlayer() {
         (index) => settings?.volumes?.[index] ?? 1,
         clampPitch(settings?.pitch),
       )
+      if (loopAfterLoad.current?.score === score) {
+        loopAfterLoad.current.midi = true
+        applyLoopAfterLoad()
+      }
     })
     /**
      * Sets every track's mute, solo, volume and pitch shift in the
@@ -913,17 +977,18 @@ export function usePlayer() {
     }
   }, [])
 
-  /** Loads a tab file's bytes and applies the song's remembered settings. */
-  const load = useCallback((data: ArrayBuffer, settings: SongSettings) => {
+  /** Loads a tab file's bytes and applies the song's remembered settings, optionally looping some bars once it is ready. */
+  const load = useCallback((data: ArrayBuffer, settings: SongSettings, loopBars?: { first: number; last: number; firstPlayed?: boolean } | null) => {
     const api = apiRef.current
     if (!api) return
     api.stop()
     keepAfterEdit.current = null
     restoreSelection.current = null
+    loopAfterLoad.current = loopBars ? { ...loopBars, score: null, drawn: false, midi: false } : null
     // A new song starts without a half-made choice of bars.
     setPicking(null)
     pendingSettings.current = settings
-    setState((s) => ({ ...s, status: 'loading', error: null }))
+    setState((s) => ({ ...s, status: 'loading', loadFailed: false, error: null }))
     api.load(new Uint8Array(data), [0])
   }, [])
 
@@ -1151,6 +1216,11 @@ export function usePlayer() {
             currentTick: tick ?? s.currentTick,
             currentBar: firstBar,
           }))
+        }),
+      /** Brings the playback position into view. */
+      revealPosition: () =>
+        withApi((api) => {
+          if (viewportRef.current) scrollToPosition(api, viewportRef.current)
         }),
       /** Starts choosing bars by tapping the first and then the last one. */
       startPicking: () => setPicking({ first: null }),

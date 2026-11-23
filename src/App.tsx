@@ -7,6 +7,8 @@ import { Fretboard } from './components/Fretboard'
 import { Icon } from './components/Icon'
 import { LibraryView } from './components/LibraryView'
 import { NewTabDialog } from './components/NewTabDialog'
+import { PlanBar } from './components/PlanBar'
+import { PlanCard } from './components/PlanCard'
 import { PracticePanel } from './components/PracticePanel'
 import { SectionList } from './components/SectionList'
 import { SyncButton } from './components/SyncButton'
@@ -16,9 +18,11 @@ import { Transport } from './components/Transport'
 import { TunerPanel } from './components/TunerPanel'
 import { TuningPicker } from './components/TuningPicker'
 import { isAppleTouch, preferPlayback } from './lib/audioSession'
+import { clampSpeed } from './lib/format'
 import { loadPrefs, MAX_VOLUME, savePrefs } from './lib/prefs'
 import { useWakeLock } from './lib/wakeLock'
 import { useEditor } from './editor/useEditor'
+import { buildExercise, EXERCISES, initialValues } from './exercises/catalogue'
 import { useFingering } from './fingering/useFingering'
 import {
   addSong,
@@ -33,6 +37,8 @@ import {
 } from './library/db'
 import type { Song, SongSettings, TakeRecord } from './library/types'
 import { useLibrary } from './library/useLibrary'
+import type { PlanStep } from './plan/plan'
+import { usePlan } from './plan/usePlan'
 import { SIDEWAYS, usePlayer } from './player/usePlayer'
 import { type NewTake, usePractice } from './practice/usePractice'
 import { startSync } from './sync/sync'
@@ -72,10 +78,29 @@ function useMediaQuery(query: string): boolean {
 export default function App() {
   const { state, actions, api, scoreRef, viewportRef, picking } = usePlayer()
   const library = useLibrary()
-  const fileInput = useRef<HTMLInputElement>(null)
-  const marksRef = useRef<HTMLDivElement>(null)
   /** The song open in the player, or null while the library is showing. */
   const [songId, setSongId] = useState<string | null>(null)
+  const plan = usePlan(library.songs)
+  const refreshPlan = plan.refresh
+  /** The step of today's plan being practised, if any. */
+  const [planStepId, setPlanStepId] = useState<string | null>(null)
+  /**
+   * The song's own tempo and track while a plan step has set others: a step
+   * must not change what the song opens with next time. Each is let go for
+   * good the first time the player picks another value by hand.
+   */
+  const [planKeeps, setPlanKeeps] = useState<{
+    speed: number
+    stepSpeed: number
+    holdSpeed: boolean
+    trackIndex: number | null
+    /** The track the step opened on, known once the song is ready. */
+    stepTrack: number | null
+    holdTrack: boolean
+  } | null>(null)
+  const startingStep = useRef(false)
+  const fileInput = useRef<HTMLInputElement>(null)
+  const marksRef = useRef<HTMLDivElement>(null)
   /** Practice history of the open song, oldest take first. */
   const [takes, setTakes] = useState<TakeRecord[]>([])
   const songIdRef = useRef(songId)
@@ -88,11 +113,12 @@ export default function App() {
     void addTake({ ...take, songId: id, at: Date.now() }).then(
       (record) => {
         if (songIdRef.current === id) setTakes((list) => [...list, record])
+        void refreshPlan()
       },
       // Without storage the take is simply not remembered.
       () => {},
     )
-  }, [])
+  }, [refreshPlan])
   // Sync is optional and runs in the background; changes from other devices refresh the list.
   const refreshLibrary = library.refresh
   useEffect(() => startSync(() => void refreshLibrary()), [refreshLibrary])
@@ -160,17 +186,52 @@ export default function App() {
   const inPlayer = songId !== null
   // The screen stays on while a song is open.
   useWakeLock(inPlayer)
-  const ready = inPlayer && state.status === 'ready'
+  const ready = inPlayer && state.status === 'ready' && !state.loadFailed
+  if (planKeeps && ready) {
+    const stepTrack = planKeeps.stepTrack ?? state.activeTrack
+    const holdSpeed = planKeeps.holdSpeed && state.speed === planKeeps.stepSpeed
+    const holdTrack = planKeeps.holdTrack && state.activeTrack === stepTrack
+    if (stepTrack !== planKeeps.stepTrack || holdSpeed !== planKeeps.holdSpeed || holdTrack !== planKeeps.holdTrack) {
+      setPlanKeeps({ ...planKeeps, stepTrack, holdSpeed, holdTrack })
+    }
+  }
+
+  // Per-song choices are saved shortly after they change. The pending save
+  // is written at once when leaving the song or the page, so a quick exit
+  // does not lose it.
+  const pendingSave = useRef<{ id: string; json: string; timer: number } | null>(null)
+  const flushSave = useCallback(() => {
+    const pending = pendingSave.current
+    if (!pending) return
+    pendingSave.current = null
+    window.clearTimeout(pending.timer)
+    void saveSongSettings(pending.id, JSON.parse(pending.json) as SongSettings)
+  }, [])
 
   const openNow = useCallback(
-    async (song: Song, edit = false) => {
+    async (song: Song, edit = false, step?: PlanStep): Promise<boolean> => {
+      // A choice made a moment ago belongs to the song being left.
+      flushSave()
       const stored = await openSong(song.id)
       if (!stored) {
         setNotice(`"${song.title}" is no longer in the library.`)
         void library.refresh()
-        return
+        return false
       }
       setNotice(null)
+      setPlanStepId(step?.id ?? null)
+      setPlanKeeps(
+        step
+          ? {
+              speed: stored.song.settings.speed,
+              stepSpeed: clampSpeed(step.speed ?? stored.song.settings.speed),
+              holdSpeed: true,
+              trackIndex: stored.song.settings.trackIndex,
+              stepTrack: null,
+              holdTrack: true,
+            }
+          : null,
+      )
       editor.actions.close()
       editor.actions.reset()
       editAfterLoad.current = edit
@@ -182,9 +243,15 @@ export default function App() {
         (kept) => songIdRef.current === stored.song.id && setHasOriginalFile(kept),
         () => {},
       )
-      actions.load(stored.data, stored.song.settings)
+      const settings = {
+        ...stored.song.settings,
+        ...(step && step.trackIndex !== null && { trackIndex: step.trackIndex }),
+        ...(step && step.speed !== null && { speed: step.speed }),
+      }
+      actions.load(stored.data, settings, step?.bars && { ...step.bars, firstPlayed: step.kind === 'new' })
+      return true
     },
-    [actions, editor.actions, library],
+    [actions, editor.actions, flushSave, library],
   )
   const open = useCallback(
     (song: Song, edit = false) => guardEdits(() => void openNow(song, edit)),
@@ -215,18 +282,6 @@ export default function App() {
     [library, open],
   )
 
-  // Per-song choices are saved shortly after they change. The pending save
-  // is written at once when leaving the song or the page, so a quick exit
-  // does not lose it.
-  const pendingSave = useRef<{ id: string; json: string; timer: number } | null>(null)
-  const flushSave = useCallback(() => {
-    const pending = pendingSave.current
-    if (!pending) return
-    pendingSave.current = null
-    window.clearTimeout(pending.timer)
-    void saveSongSettings(pending.id, JSON.parse(pending.json) as SongSettings)
-  }, [])
-
   const leaveSong = useCallback(() => {
     flushSave()
     if (practice.state.open) practice.actions.closePanel()
@@ -235,11 +290,33 @@ export default function App() {
     editor.actions.reset()
     actions.stop()
     setSongId(null)
+    setPlanStepId(null)
+    setPlanKeeps(null)
     setTakes([])
     setTracksOpen(false)
     void library.refresh()
   }, [actions, editor.actions, flushSave, library, practice.actions, practice.state.open, tuner.actions, tuner.state.open])
   const backToLibrary = useCallback(() => guardEdits(leaveSong), [guardEdits, leaveSong])
+
+  // A song that could not be opened leaves the player holding the one before
+  // it, which must not be practised or saved under the new song's name.
+  const leaveFailedSong = useRef(leaveSong)
+  useEffect(() => {
+    leaveFailedSong.current = leaveSong
+  })
+  useEffect(() => {
+    if (!state.loadFailed || !songIdRef.current) return
+    leaveFailedSong.current()
+    setNotice('This file could not be opened. It may be damaged or in a format that is not supported.')
+  }, [state.loadFailed])
+
+  // Sizes are noted from what is saved, not from edits that may yet be discarded.
+  const savedBars = ready && !editor.state.dirty ? api?.score?.masterBars.length : undefined
+  const noteSongSize = plan.noteSongSize
+  const trackCount = state.tracks.length
+  useEffect(() => {
+    if (songId && savedBars) noteSongSize(songId, savedBars, trackCount)
+  }, [noteSongSize, savedBars, songId, trackCount])
 
   const restoreOriginalFile = useCallback(async () => {
     const id = songIdRef.current
@@ -267,8 +344,9 @@ export default function App() {
 
   const settingsJson = ready
     ? JSON.stringify({
-        speed: state.speed,
-        trackIndex: state.activeTrack,
+        // What the player changes by hand is kept; what a plan step set is not.
+        speed: planKeeps?.holdSpeed ? planKeeps.speed : state.speed,
+        trackIndex: planKeeps?.holdTrack ? planKeeps.trackIndex : state.activeTrack,
         mutedTracks: state.tracks.filter((t) => t.muted).map((t) => t.index),
         soloTracks: state.tracks.filter((t) => t.solo).map((t) => t.index),
         volumes: Object.fromEntries(
@@ -435,6 +513,97 @@ export default function App() {
       window.removeEventListener('drop', onDrop)
     }
   }, [addFiles])
+
+  /** Opens a step of today's plan: its song, track, bars on a loop and tempo, with practice ready. */
+  const runPlanStep = async (step: PlanStep) => {
+    // A second press while the first is still adding the exercise would add it twice.
+    if (startingStep.current) return
+    startingStep.current = true
+    try {
+      let song = step.exercise
+        ? library.songs?.find((item) => item.fileName === step.exercise?.fileName)
+        : library.songs?.find((item) => item.id === step.songId)
+      if (!song && step.exercise) {
+        const exercise = EXERCISES.find((item) => item.id === step.exercise?.id)
+        if (exercise) {
+          const built = buildExercise(exercise, initialValues(exercise))
+          const file = built.data.buffer.slice(
+            built.data.byteOffset,
+            built.data.byteOffset + built.data.byteLength,
+          ) as ArrayBuffer
+          song = await addSong({ title: built.title, artist: 'Exercise', fileName: built.fileName, data: file })
+          await library.refresh()
+        }
+      }
+      if (!song) {
+        setNotice(`"${step.title}" is no longer in the library.`)
+        return
+      }
+      if (tuner.state.open) tuner.actions.close()
+      // Another track must be drawn before its bars can be selected, so it is opened afresh, as
+      // is a first go at a song, whose first notes are only found on loading, and discarded edits.
+      const inPlace =
+        song.id === songIdRef.current &&
+        step.kind !== 'new' &&
+        !editorDirty &&
+        (step.trackIndex === null || step.trackIndex === state.activeTrack)
+      if (inPlace) {
+        setPlanStepId(step.id)
+        setPlanKeeps((kept) => ({
+          speed: kept?.holdSpeed ? kept.speed : state.speed,
+          stepSpeed: clampSpeed(step.speed ?? state.speed),
+          holdSpeed: true,
+          trackIndex: kept?.holdTrack ? kept.trackIndex : state.activeTrack,
+          stepTrack: kept?.holdTrack ? kept.stepTrack : state.activeTrack,
+          holdTrack: true,
+        }))
+        editor.actions.close()
+        actions.stop()
+        if (step.speed !== null) actions.setSpeed(step.speed)
+        if (step.bars) {
+          const count = api?.score?.masterBars.length ?? 0
+          if (count > 0) {
+            const first = Math.min(step.bars.first, count - 1)
+            actions.selectBars(first, Math.min(Math.max(first, step.bars.last), count - 1), true)
+          }
+        } else {
+          actions.clearLoopRange()
+          actions.setLooping(false)
+        }
+        if (practice.state.phase === 'results') practice.actions.dismissResult()
+      } else {
+        // Results and the microphone belong to the song being left.
+        if (practice.state.open) practice.actions.closePanel()
+        if (!(await openNow(song, false, step))) return
+      }
+      practice.actions.openPanel()
+      // The panel takes height from the tab, which can push the bars out of view.
+      if (inPlace) window.requestAnimationFrame(() => actions.revealPosition())
+    } catch {
+      setNotice('The exercise could not be saved in this browser.')
+    } finally {
+      startingStep.current = false
+    }
+  }
+  const startPlanStep = (step: PlanStep) => guardEdits(() => void runPlanStep(step))
+
+  const planStepIndex = plan.steps.findIndex((step) => step.id === planStepId)
+  const planStep = planStepIndex >= 0 ? plan.steps[planStepIndex] : null
+  /** The next step still to do after the current one, going round to any left earlier in the plan. */
+  const nextPlanStep = planStep
+    ? [...plan.steps.slice(planStepIndex + 1), ...plan.steps.slice(0, planStepIndex)].find(
+        (step) => !plan.done.has(step.id) && !plan.skipped.has(step.id),
+      )
+    : undefined
+  const movePlanOn = () => {
+    if (!planStep) return
+    // Asked first: choosing Cancel leaves the step as it was.
+    guardEdits(() => {
+      if (!plan.done.has(planStep.id)) plan.skip(planStep.id)
+      if (nextPlanStep) void runPlanStep(nextPlanStep)
+      else leaveSong()
+    })
+  }
 
   const openPicker = () => fileInput.current?.click()
   const message = notice ?? (inPlayer ? state.error : null)
@@ -625,6 +794,17 @@ export default function App() {
               void library.remove(song.id)
             }
           }}
+          plan={
+            <PlanCard
+              steps={plan.steps}
+              done={plan.done}
+              skipped={plan.skipped}
+              minutes={plan.minutes}
+              disabled={busy}
+              onMinutes={plan.setMinutes}
+              onStart={startPlanStep}
+            />
+          }
         />
       )}
 
@@ -647,6 +827,29 @@ export default function App() {
 
       {ready && tuner.state.open && (
         <TunerPanel state={tuner.state} tuning={guitarTuning} />
+      )}
+
+      {ready && planStep && (
+        <PlanBar
+          key={planStep.id}
+          step={planStep}
+          number={planStepIndex + 1}
+          total={plan.steps.length}
+          done={plan.done.has(planStep.id)}
+          hasNext={nextPlanStep !== undefined}
+          locked={practiceBusy}
+          onNext={movePlanOn}
+          onEnd={() => setPlanStepId(null)}
+        />
+      )}
+
+      {ready && planStepId !== null && !planStep && (
+        <div className="plan-bar" role="status">
+          <span className="plan-bar-text">This step is no longer in today&apos;s plan: the tab or the day changed.</span>
+          <button type="button" className="icon-button" aria-label="Leave the plan" onClick={() => setPlanStepId(null)}>
+            <Icon name="close" />
+          </button>
+        </div>
       )}
 
       {ready && picking && (

@@ -392,13 +392,24 @@ export interface BuiltExercise {
   data: Uint8Array
 }
 
-/** Writes an exercise out as a Guitar Pro file. Choices that are missing or unknown fall back to the first ones. */
-export function buildExercise(exercise: Exercise, chosen: Record<string, string>): BuiltExercise {
+/** The chosen values, with missing or unknown ones replaced by the initial ones. */
+function resolveValues(exercise: Exercise, chosen: Record<string, string>): Record<string, string> {
   const values = initialValues(exercise)
   for (const option of exercise.options) {
     if (option.choices.some((choice) => choice.value === chosen[option.id])) values[option.id] = chosen[option.id]
   }
-  const sheet = exercise.make(values)
+  return values
+}
+
+/** The file name an exercise is kept under in the library for the given choices. */
+export function exerciseFileName(exercise: Exercise, chosen: Record<string, string>): string {
+  const values = resolveValues(exercise, chosen)
   const choices = exercise.options.map((option) => values[option.id]).join('-')
-  return { title: sheet.title, fileName: `exercise-${exercise.id}-${choices}.gp`, data: buildSheet(sheet) }
+  return `exercise-${exercise.id}-${choices}.gp`
+}
+
+/** Writes an exercise out as a Guitar Pro file. Choices that are missing or unknown fall back to the initial ones. */
+export function buildExercise(exercise: Exercise, chosen: Record<string, string>): BuiltExercise {
+  const sheet = exercise.make(resolveValues(exercise, chosen))
+  return { title: sheet.title, fileName: exerciseFileName(exercise, chosen), data: buildSheet(sheet) }
 }
