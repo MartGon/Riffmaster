@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { TakeRecord } from '../library/types'
 import { TIMING_LEEWAYS, type TimingLeeway } from '../practice/matching'
 import { DELAY_SOURCE_TEXT, type TakeDetails } from '../practice/takeReport'
+import { timingHabits } from '../practice/tendencies'
 import { TRAINER_STEPS, TRAINER_THRESHOLDS } from '../practice/trainer'
 import type { PracticeActions, PracticeResult, PracticeState } from '../practice/usePractice'
 import { Shape } from './GradeShape'
@@ -13,11 +14,14 @@ const percent = (share: number) => `${Math.round(share * 100)}%`
 
 function Results({
   result,
+  habit,
   onClear,
   onSave,
   onReport,
 }: {
   result: PracticeResult
+  /** The clearest timing habit in the latest takes, in words. */
+  habit?: string
   onClear: () => void
   /** Saves the take's recording for troubleshooting; absent when there is none. */
   onSave?: () => void
@@ -66,6 +70,7 @@ function Results({
         Delay used: {result.latencyMs} ms ({DELAY_SOURCE_TEXT[result.latencySource]}).
         {summary.unscored > 0 && <> {summary.unscored} chords were not scored.</>}
       </p>
+      {habit && <p className="practice-detail practice-habit">In your recent takes: {habit}</p>}
       <button type="button" className="toggle" onClick={onClear}>
         <Icon name="close" />
         Clear results
@@ -318,6 +323,7 @@ export function PracticePanel({ state, actions, speed, takes, onLoopBar, onClear
       {state.phase === 'results' && state.result && (
         <Results
           result={state.result}
+          habit={timingHabits(takes)[0]?.text}
           onClear={actions.dismissResult}
           onSave={state.canSave ? actions.saveTake : undefined}
           onReport={state.canSave ? () => setReport(actions.takeDetails()) : undefined}

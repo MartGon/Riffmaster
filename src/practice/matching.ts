@@ -113,6 +113,8 @@ export interface LatencyEstimate {
   latencyMs: number
   /** How many played notes agreed with this estimate. */
   support: number
+  /** Another delay, a note or so away, fits almost as well, as on a line repeating one pitch. */
+  ambiguous: boolean
 }
 
 /**
@@ -143,10 +145,12 @@ export function estimateLatency(
   const binMs = 10
   const bins = new Array<number>(Math.ceil((maxMs - minMs) / binMs) + 1).fill(0)
   const votes: number[] = []
+  /** Which played notes voted in each bin. */
+  const voters = bins.map(() => new Set<number>())
 
   const scored = expected.filter(isScored)
   let first = 0
-  for (const note of played) {
+  for (const [playedIndex, note] of played.entries()) {
     while (first < scored.length && scored[first].timeMs < note.timeMs - maxMs) first++
     for (let i = first; i < scored.length; i++) {
       const delay = note.timeMs - scored[i].timeMs
@@ -154,7 +158,9 @@ export function estimateLatency(
       // A chord's attack is heard on one of its notes.
       if (!scored[i].midi.some((midi) => pitchMatches(note.midi, midi, tolerance))) continue
       votes.push(delay)
-      bins[Math.floor((delay - minMs) / binMs)]++
+      const bin = Math.floor((delay - minMs) / binMs)
+      bins[bin]++
+      voters[bin].add(playedIndex)
     }
   }
   if (votes.length < 3) return null
@@ -186,7 +192,15 @@ export function estimateLatency(
   const centre = centreOf(best)
   const near = votes.filter((delay) => Math.abs(delay - centre) <= 40)
   if (near.length < 3) return null
-  return { latencyMs: median(near), support: near.length }
+  // A rival delay matters only if the same notes fit it. Different notes at
+  // two delays are a player with a real habit, not a doubt about the delay.
+  const around = (i: number) => new Set([...(voters[i - 1] ?? []), ...voters[i], ...(voters[i + 1] ?? [])])
+  const atBest = around(best)
+  const ambiguous = density.some((count, i) => {
+    if (Math.abs(i - best) <= 6 || count < bestCount * 0.85) return false
+    return [...around(i)].filter((note) => atBest.has(note)).length >= atBest.size * 0.85
+  })
+  return { latencyMs: median(near), support: near.length, ambiguous }
 }
 
 /**

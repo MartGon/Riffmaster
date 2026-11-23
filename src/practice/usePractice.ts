@@ -29,6 +29,7 @@ import {
 import { type InputDevice, listInputs, MicInput } from './micInput'
 import { downloadFile, encodeTake } from './takeFile'
 import { describeTake, inputLevel, readTakeReport, type TakeDetails } from './takeReport'
+import { tallyTiming } from './tendencies'
 import { trainerOutcome, type TrainerSettings } from './trainer'
 
 export type TakeKind = 'practice' | 'measure'
@@ -183,6 +184,8 @@ interface Take {
   /** The latest scored pass, kept for the end of a looped take. */
   lastOutcome: PassOutcome | null
   speed: number
+  /** When Start was pressed; the passes and trainer rounds of one press share it. */
+  sitting: number
   /** Semitones the song was shifted by when the take began. */
   pitch: number
   sawPlaying: boolean
@@ -267,6 +270,8 @@ export function usePractice(
   const lastLevelAt = useRef(0)
   /** Counts microphone open and close requests, so a slow open can tell it was superseded. */
   const micRequest = useRef(0)
+  /** When Start was last pressed. */
+  const sittingRef = useRef(0)
   // The latest player state, readable from event handlers without re-subscribing.
   const playerRef = useRef(player)
   // alphaTab is driven imperatively, so it is reached through a ref as well.
@@ -628,6 +633,25 @@ export function usePractice(
           accuracy: summary.accuracy,
           bars: tallyBars(bars, scored.results),
           trainer: trainerRef.current.running,
+          // With a delay that may be a note out, who is early and who is late cannot be told.
+          timing:
+            scored.latencySource === 'measured' || (scored.latencySource === 'estimated' && !scored.estimate?.ambiguous)
+              ? tallyTiming(
+                  scored.expected.map((note, index) => {
+                    const single = note.notes.length === 1 ? note.notes[0] : null
+                    return {
+                      // The bar and the beat in it: a repeat is not another place.
+                      place: note.bar * 100_000 + (note.notes[0]?.beat.playbackStart ?? 0),
+                      timeMs: note.timeMs,
+                      string: single?.string ?? null,
+                      fret: single?.fret ?? null,
+                      offsetMs: scored.results[index].offsetMs,
+                    }
+                  }),
+                  scored.latencySource === 'measured',
+                  take.sitting,
+                )
+              : undefined,
         })
       }
       const outcome: PassOutcome = {
@@ -787,7 +811,10 @@ export function usePractice(
       const api = apiRef.current
       if (!api?.score || takeRef.current) return
       // A press of Start begins a fresh run; the trainer's own rounds carry on with theirs.
-      if (!nextRound) endTrainer(null)
+      if (!nextRound) {
+        endTrainer(null)
+        sittingRef.current = Date.now()
+      }
       optionsRef.current.releaseLeadIn()
       const current = playerRef.current
       const lookup = api.tickCache
@@ -891,6 +918,7 @@ export function usePractice(
         loopMs: (timeAt(range.endTick) - timeAt(playStart)) / speed,
         lastOutcome: null,
         speed,
+        sitting: sittingRef.current,
         pitch: current.pitch,
         sawPlaying: false,
         userStopped: false,
@@ -1086,6 +1114,7 @@ export function usePractice(
               tick: note.tick,
               timeMs: note.timeMs,
               midi: note.midi,
+              string: note.notes.length === 1 ? note.notes[0].string : null,
             }))
           : [],
       range: () =>

@@ -59,6 +59,28 @@ export interface BarTally {
   offTime: number
 }
 
+/** How one kind of note sat in a take, against the steady notes around it. */
+export interface TimingGroup {
+  n: number
+  /** Median distance from those steady notes, in ms: positive is late. */
+  ms: number
+  /** Where such notes are written, the same on every repeat; a few are enough. */
+  spots: number[]
+}
+
+/** How a take's notes sat against each other, by how each note was reached. A kind with too few notes is left out. */
+export interface TimingTally {
+  /** The same for all passes of one press of Start, which are not separate evidence. */
+  sitting: number
+  stringChange?: TimingGroup
+  /** Jumps of several frets along one string. */
+  shift?: TimingGroup
+  /** Notes close after the one before, on one string and in one position. */
+  fast?: TimingGroup
+  /** Median distance from the beat itself; only for takes with a measured delay. */
+  bias?: { n: number; ms: number }
+}
+
 /**
  * One finished practice take, kept so progress can be followed over time.
  * Takes are only ever added or removed whole, which keeps merging two
@@ -86,4 +108,6 @@ export interface TakeRecord {
   bars: Record<number, BarTally>
   /** Whether the take was a round of the speed trainer. */
   trainer: boolean
+  /** How the notes sat against each other. Missing in takes from before it was kept. */
+  timing?: TimingTally
 }

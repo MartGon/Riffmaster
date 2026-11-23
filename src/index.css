@@ -1002,6 +1002,21 @@ select {
   white-space: nowrap;
 }
 
+.timing-habits {
+  max-width: 360px;
+}
+
+.timing-habits ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.practice-habit {
+  flex-basis: 100%;
+  font-weight: 600;
+}
+
 .history-side {
   display: flex;
   flex-direction: column;

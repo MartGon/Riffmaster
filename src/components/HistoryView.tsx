@@ -1,5 +1,6 @@
 import type { TakeRecord } from '../library/types'
 import { summarizeHistory, troubleBars } from '../practice/history'
+import { timingAssessed, timingHabits } from '../practice/tendencies'
 
 interface Props {
   /** Takes of the shown track, oldest first. */
@@ -87,6 +88,7 @@ export function HistoryView({ takes, disabled, onLoopBar, onClear }: Props) {
   }
   const summary = summarizeHistory(takes)
   const trouble = troubleBars(takes)
+  const habits = timingHabits(takes)
   const recent = takes.slice(-5).reverse()
   return (
     <div className="history">
@@ -148,6 +150,24 @@ export function HistoryView({ takes, disabled, onLoopBar, onClear }: Props) {
                 </button>
               ))}
             </div>
+          )}
+        </div>
+        <div className="timing-habits">
+          <span className="history-label">Timing habits</span>
+          {habits.length === 0 ? (
+            <p className="practice-message">
+              {timingAssessed(takes)
+                ? 'Nothing stands out yet. It takes at least three separate goes to tell a habit from a slip.'
+                : 'These takes cannot show timing habits: they need steady notes around the moves, and a delay the app can tell from your playing. Measuring the delay helps.'}
+            </p>
+          ) : (
+            <ul>
+              {habits.map((habit) => (
+                <li key={habit.kind}>
+                  <strong>{habit.text}</strong> {habit.tip}
+                </li>
+              ))}
+            </ul>
           )}
         </div>
         <button type="button" className="toggle" disabled={disabled} onClick={onClear}>
