@@ -1,5 +1,6 @@
 import * as alphaTab from '@coderline/alphatab'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { DrillDialog } from './components/DrillDialog'
 import { EditorPanel } from './components/EditorPanel'
 import { ExerciseDialog } from './components/ExerciseDialog'
 import { ChoiceDialog } from './components/FormDialog'
@@ -23,6 +24,7 @@ import { loadPrefs, MAX_VOLUME, savePrefs } from './lib/prefs'
 import { useWakeLock } from './lib/wakeLock'
 import { useEditor } from './editor/useEditor'
 import { buildExercise, EXERCISES, initialValues } from './exercises/catalogue'
+import { buildDrill, type DrillChoices, drillOptions, type DrillOptions } from './exercises/drill'
 import { useFingering } from './fingering/useFingering'
 import {
   addSong,
@@ -33,6 +35,7 @@ import {
   openSong,
   restoreOriginal,
   saveEditedSong,
+  saveSongPitch,
   saveSongSettings,
 } from './library/db'
 import type { Song, SongSettings, TakeRecord } from './library/types'
@@ -144,6 +147,8 @@ export default function App() {
   const [leaving, setLeaving] = useState<{ then: () => void } | null>(null)
   const [newTabOpen, setNewTabOpen] = useState(false)
   const [exercisesOpen, setExercisesOpen] = useState(false)
+  /** The passage a drill is being made from. */
+  const [drillSource, setDrillSource] = useState<{ first: number; last: number; options: DrillOptions } | null>(null)
   const editorDirty = editor.state.dirty
   /** Runs `then` straight away, or after asking what to do with unsaved edits. */
   const guardEdits = useCallback(
@@ -605,6 +610,37 @@ export default function App() {
     })
   }
 
+  /** Asks what to put in a drill of the selected bars, or of the current bar when none are selected. */
+  const startDrill = () => {
+    const score = api?.score
+    if (!score) return
+    const selected = actions.selection()
+    const first = selected?.first ?? state.currentBar
+    const last = selected?.last ?? state.currentBar
+    // The bars on screen are only those of the saved song once the edits are saved or undone.
+    const options: DrillOptions = editorDirty
+      ? { problem: 'Save or undo your edits first, so the drill is made from the notes you keep.', rhythms: false, strings: false, leftOutPickup: false }
+      : drillOptions(score, state.activeTrack, first, last)
+    setDrillSource({ first, last, options })
+  }
+  const createDrill = async (choices: DrillChoices): Promise<string | void> => {
+    const score = api?.score
+    const id = songIdRef.current
+    if (!score || !id || !drillSource) return 'The song is no longer open.'
+    const { first, last } = drillSource
+    const built = buildDrill(score, { songId: id, trackIndex: state.activeTrack, first, last }, choices)
+    let song = library.songs?.find((item) => item.fileName === built.fileName)
+    if (!song) {
+      const data = built.data.buffer.slice(built.data.byteOffset, built.data.byteOffset + built.data.byteLength) as ArrayBuffer
+      song = await addSong({ title: built.title, artist: 'Exercise', fileName: built.fileName, data })
+    }
+    // Drilled in the tuning the guitar is in now.
+    await saveSongPitch(song.id, state.pitch)
+    await library.refresh()
+    if (practice.state.open) practice.actions.closePanel()
+    await openNow(song)
+  }
+
   const openPicker = () => fileInput.current?.click()
   const message = notice ?? (inPlayer ? state.error : null)
 
@@ -877,6 +913,7 @@ export default function App() {
           actions={practice.actions}
           speed={state.speed}
           takes={trackTakes}
+          onDrill={startDrill}
           onLoopBar={(bar) => actions.selectBars(bar, bar, true)}
           onClearHistory={() => {
             const id = songId
@@ -945,6 +982,19 @@ export default function App() {
               return 'The exercise could not be saved in this browser.'
             }
           }}
+        />
+      )}
+
+      {drillSource && (
+        <DrillDialog
+          label={
+            drillSource.first === drillSource.last
+              ? `Bar ${drillSource.first + 1}`
+              : `Bars ${drillSource.first + 1}–${drillSource.last + 1}`
+          }
+          options={drillSource.options}
+          onCreate={createDrill}
+          onClose={() => setDrillSource(null)}
         />
       )}
 

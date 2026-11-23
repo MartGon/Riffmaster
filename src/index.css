@@ -2309,3 +2309,29 @@ kbd {
     padding-block: 2px;
   }
 }
+
+/* Making a drill from a passage */
+.drill-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.drill-choice {
+  align-items: flex-start;
+}
+
+.drill-choice > span {
+  display: flex;
+  flex-direction: column;
+}
+
+.drill-about {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.drill-choice.unavailable {
+  opacity: 0.6;
+}

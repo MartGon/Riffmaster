@@ -198,6 +198,23 @@ export async function saveSongSettings(
   await tx.done
 }
 
+/** Sets the tuning shift a song plays in, leaving its other settings as they are. */
+export async function saveSongPitch(id: string, pitch: number, now = Date.now()): Promise<void> {
+  const tx = (await db()).transaction(['songs', 'outbox'], 'readwrite')
+  const song = await tx.objectStore('songs').get(id)
+  if (song && song.deletedAt === null && (song.settings.pitch ?? 0) !== pitch) {
+    const settings = { ...song.settings }
+    if (pitch === 0) delete settings.pitch
+    else settings.pitch = pitch
+    await tx.objectStore('songs').put({ ...song, settings, updatedAt: now })
+    await markSong(tx.objectStore('outbox'), id)
+    await tx.done
+    changed()
+    return
+  }
+  await tx.done
+}
+
 /** Where the file a song had before it was first edited is kept. */
 export function originalKey(id: string): string {
   return `original:${id}`

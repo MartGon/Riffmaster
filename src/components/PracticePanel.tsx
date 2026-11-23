@@ -98,9 +98,11 @@ interface Props {
   takes: TakeRecord[]
   onLoopBar: (bar: number) => void
   onClearHistory: () => void
+  /** Makes a practice piece from the selected bars. */
+  onDrill: () => void
 }
 
-export function PracticePanel({ state, actions, speed, takes, onLoopBar, onClearHistory }: Props) {
+export function PracticePanel({ state, actions, speed, takes, onLoopBar, onClearHistory, onDrill }: Props) {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [report, setReport] = useState<TakeDetails | null>(null)
   const recording = state.phase === 'recording' || state.phase === 'starting'
@@ -138,6 +140,16 @@ export function PracticePanel({ state, actions, speed, takes, onLoopBar, onClear
           </span>
         )}
         <span className="practice-spacer" />
+        <button
+          type="button"
+          className="toggle"
+          disabled={busy}
+          title="Turn the selected bars into an exercise: slow, in chunks, in other rhythms and on other strings"
+          onClick={onDrill}
+        >
+          <Icon name="exercise" />
+          Make drill
+        </button>
         <button
           type="button"
           className="toggle"
