@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { DrillDialog } from './components/DrillDialog'
 import { EditorPanel } from './components/EditorPanel'
 import { ExerciseDialog } from './components/ExerciseDialog'
+import { FindNoteDialog } from './components/FindNoteDialog'
 import { ChoiceDialog } from './components/FormDialog'
 import { Fretboard } from './components/Fretboard'
 import { Icon } from './components/Icon'
@@ -162,6 +163,7 @@ export default function App() {
   const [leaving, setLeaving] = useState<{ then: () => void } | null>(null)
   const [newTabOpen, setNewTabOpen] = useState(false)
   const [exercisesOpen, setExercisesOpen] = useState(false)
+  const [findNoteOpen, setFindNoteOpen] = useState(false)
   const [pedalOpen, setPedalOpen] = useState(false)
   const [pedalKeys, setPedalKeys] = useState<PedalKeys>(loadPedalKeys)
   /** The passage a drill is being made from. */
@@ -896,6 +898,7 @@ export default function App() {
           onAdd={openPicker}
           onNew={() => setNewTabOpen(true)}
           onExercises={() => setExercisesOpen(true)}
+          onFindNote={() => setFindNoteOpen(true)}
           onDelete={(song) => {
             if (window.confirm(`Remove "${song.title}" from the library?`)) {
               void library.remove(song.id)
@@ -1056,6 +1059,8 @@ export default function App() {
           }}
         />
       )}
+
+      {findNoteOpen && <FindNoteDialog onClose={() => setFindNoteOpen(false)} />}
 
       {pedalOpen && (
         <PedalDialog

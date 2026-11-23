@@ -25,6 +25,18 @@ describe('audio session on iPhone', () => {
     expect(session.type).toBe('playback')
   })
 
+  it('keeps recording until the last microphone has closed', async () => {
+    const session = { type: 'auto' }
+    vi.stubGlobal('navigator', { userAgent: iPhone, platform: 'iPhone', maxTouchPoints: 5, audioSession: session })
+    const { allowRecording, recordingEnded } = await load()
+    allowRecording()
+    allowRecording()
+    recordingEnded()
+    expect(session.type).toBe('play-and-record')
+    recordingEnded()
+    expect(session.type).toBe('playback')
+  })
+
   it('falls back to a silent looping <audio> element on older iOS', async () => {
     const played: { src: string; loop: boolean }[] = []
     class FakeAudio {

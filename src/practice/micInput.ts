@@ -64,6 +64,7 @@ export class MicInput {
   private firstFrame: number | null = null
   /** Smallest observed gap between the page clock and the audio clock, in ms. */
   private clockOffsetMs = Infinity
+  private closed = false
   onBlock: ((block: MicBlock) => void) | null = null
   /** Called when the input goes away by itself, such as a device unplugged. */
   onLost: (() => void) | null = null
@@ -93,15 +94,21 @@ export class MicInput {
     // switch the whole device into a phone-call audio mode.
     allowRecording()
 
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        deviceId: deviceId ? { exact: deviceId } : undefined,
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-        channelCount: 1,
-      },
-    })
+    let stream: MediaStream
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: deviceId ? { exact: deviceId } : undefined,
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+          channelCount: 1,
+        },
+      })
+    } catch (error) {
+      recordingEnded()
+      throw error
+    }
     try {
       const context = new AudioContext({ latencyHint: 'interactive' })
       const moduleUrl = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }))
@@ -121,6 +128,7 @@ export class MicInput {
       return new MicInput(context, stream, node)
     } catch (error) {
       for (const track of stream.getTracks()) track.stop()
+      recordingEnded()
       throw error
     }
   }
@@ -141,6 +149,8 @@ export class MicInput {
   }
 
   close(): void {
+    if (this.closed) return
+    this.closed = true
     this.onBlock = null
     this.onLost = null
     for (const track of this.stream.getTracks()) track.stop()

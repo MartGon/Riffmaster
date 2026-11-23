@@ -17,6 +17,7 @@ interface Props {
   onNew: () => void
   /** Shows the built-in exercises. */
   onExercises: () => void
+  onFindNote: () => void
   /** Today's practice plan, shown above the list. */
   plan: ReactNode
 }
@@ -35,7 +36,7 @@ function practiceText(practice: SongPractice | undefined): string {
   return `${takes}, best ${Math.round(practice.best * 100)}%`
 }
 
-export function LibraryView({ songs, practice, busy, onOpen, onDelete, onAdd, onNew, onExercises, plan }: Props) {
+export function LibraryView({ songs, practice, busy, onOpen, onDelete, onAdd, onNew, onExercises, onFindNote, plan }: Props) {
   if (songs === null) return <div className="library" />
 
   if (songs.length === 0) {
@@ -55,6 +56,10 @@ export function LibraryView({ songs, practice, busy, onOpen, onDelete, onAdd, on
           <button type="button" className="button" disabled={busy} onClick={onExercises}>
             <Icon name="exercise" />
             Exercises
+          </button>
+          <button type="button" className="button" disabled={busy} onClick={onFindNote}>
+            <Icon name="exercise" />
+            Find the note
           </button>
         </div>
         <p className="hint">Guitar Pro 3 to 8 (.gp, .gpx, .gp5, .gp4, .gp3) and MusicXML</p>
@@ -76,6 +81,10 @@ export function LibraryView({ songs, practice, busy, onOpen, onDelete, onAdd, on
           <button type="button" className="button" disabled={busy} onClick={onExercises}>
             <Icon name="exercise" />
             Exercises
+          </button>
+          <button type="button" className="button" disabled={busy} onClick={onFindNote}>
+            <Icon name="exercise" />
+            Find the note
           </button>
           <button type="button" className="button" disabled={busy} onClick={onNew}>
             <Icon name="edit" />

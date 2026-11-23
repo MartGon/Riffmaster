@@ -1839,6 +1839,179 @@ input[type='range'] {
   margin-top: 14px;
 }
 
+/* Find the note: a game in a dialog, its size steady from one note to the next. */
+.dialog.find-note {
+  width: min(520px, calc(100vw - 32px));
+}
+
+.find-note-meta {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.find-note-top {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.find-note-score {
+  justify-self: end;
+  font-size: 1.25rem;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.find-note-time {
+  height: 6px;
+  margin: 8px 0 4px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--surface-2);
+}
+
+.find-note-time span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transform-origin: left;
+}
+
+.find-note-prompt,
+.find-note-wait,
+.find-note-count {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 210px;
+  margin: 0;
+  text-align: center;
+}
+
+.find-note-count {
+  font-size: 4rem;
+  font-weight: 700;
+}
+
+.find-note-string {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.find-note-name {
+  font-size: clamp(2.6rem, 13vw, 4.25rem);
+  line-height: 1.15;
+}
+
+.find-note-prompt.right .find-note-name {
+  color: var(--grade-ok);
+}
+
+.find-note-prompt.missed .find-note-name {
+  color: var(--grade-miss);
+}
+
+.find-note-zone,
+.find-note-status {
+  color: var(--text-muted);
+}
+
+.find-note-status {
+  min-height: 1.5em;
+  margin: 10px 0 0;
+  font-weight: 600;
+}
+
+.find-note-results {
+  text-align: center;
+}
+
+.find-note-grade {
+  font-size: 3.5rem;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--accent);
+}
+
+.find-note-final {
+  margin: 2px 0 12px;
+}
+
+.find-note-final strong {
+  font-size: 1.4rem;
+}
+
+.find-note-best {
+  margin-left: 6px;
+  font-weight: 700;
+  color: var(--grade-ok);
+}
+
+.find-note-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 0;
+}
+
+.find-note-stats div {
+  padding: 8px 4px;
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.find-note-stats dt {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.find-note-stats dd {
+  margin: 2px 0 0;
+  font-weight: 700;
+}
+
+.find-note-worst {
+  margin-top: 14px;
+  text-align: left;
+}
+
+.find-note-worst h3 {
+  margin: 0 0 4px;
+  font-size: 0.95rem;
+}
+
+.find-note-worst ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.9rem;
+}
+
+/* A phone held sideways keeps Stop in view. */
+@media (max-height: 480px) {
+  .find-note-prompt,
+  .find-note-wait,
+  .find-note-count {
+    min-height: 120px;
+  }
+
+  .find-note-name {
+    font-size: 2.4rem;
+  }
+
+  .find-note-count {
+    font-size: 3rem;
+  }
+
+  .find-note-status {
+    margin-top: 4px;
+  }
+}
+
 /* Take report: a wider dialog whose table scrolls inside it, never the page. */
 .dialog.take-report {
   width: min(820px, calc(100vw - 32px));

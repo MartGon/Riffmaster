@@ -78,14 +78,20 @@ export function preferPlayback(): void {
   if (isAppleTouch()) keepMediaSessionAlive()
 }
 
-/** For the microphone: playback and recording together, not a phone call. */
+/** Microphones open or on their way; one closing must not end the session under another. */
+let recorders = 0
+
+/** For the microphone: playback and recording together, not a phone call. Pair with recordingEnded. */
 export function allowRecording(): void {
+  recorders++
   const session = audioSession()
   if (session) session.type = 'play-and-record'
 }
 
-/** After the microphone is closed: back to plain media playback. */
+/** After a microphone is closed, or failed to open: back to plain media playback once none is left. */
 export function recordingEnded(): void {
+  recorders = Math.max(0, recorders - 1)
+  if (recorders > 0) return
   const session = audioSession()
   if (session) session.type = 'playback'
 }
