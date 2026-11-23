@@ -129,6 +129,7 @@ export default function App() {
     setSpeed: actions.setSpeed,
     onTake,
     releaseLeadIn: actions.releaseLeadIn,
+    reveal: actions.revealPosition,
     holdRange: actions.holdRange,
   })
   const editLayerRef = useRef<HTMLDivElement>(null)
@@ -383,6 +384,7 @@ export default function App() {
   // The speed trainer keeps hold of playback between its rounds as well.
   const practiceBusy =
     practice.state.phase === 'recording' ||
+    practice.state.phase === 'following' ||
     practice.state.phase === 'starting' ||
     practice.state.trainer.running
 
@@ -397,7 +399,8 @@ export default function App() {
     !editor.state.active &&
     !tuner.state.open &&
     !tracksOpen &&
-    ((state.isPlaying && !practice.state.open) || (practice.state.open && practising))
+    // Wait mode keeps its panel: it has Skip note, and says what was heard.
+    ((state.isPlaying && !practice.state.open) || (practice.state.open && practising && practice.state.phase !== 'following'))
 
   // The editor, practice and the tuner each use the bottom of the screen, so one is open at a time.
   const togglePractice = () => {
@@ -580,7 +583,7 @@ export default function App() {
           actions.clearLoopRange()
           actions.setLooping(false)
         }
-        if (practice.state.phase === 'results') practice.actions.dismissResult()
+        if (practice.state.phase === 'results' || practice.state.waitSummary) practice.actions.dismissResult()
       } else {
         // Results and the microphone belong to the song being left.
         if (practice.state.open) practice.actions.closePanel()

@@ -30,6 +30,7 @@ import { type InputDevice, listInputs, MicInput } from './micInput'
 import { downloadFile, encodeTake } from './takeFile'
 import { describeTake, inputLevel, readTakeReport, type TakeDetails } from './takeReport'
 import { tallyTiming } from './tendencies'
+import { WaitFollower, type WaitOutcome, type WaitSummary, type WaitTarget } from './waitMode'
 import { trainerOutcome, type TrainerSettings } from './trainer'
 
 export type TakeKind = 'practice' | 'measure'
@@ -51,6 +52,8 @@ export interface PracticeOptions {
   onTake: (take: NewTake) => void
   /** Ends a plain Play's run-up, so the playback range is the selection again. */
   releaseLeadIn: () => void
+  /** Brings the playback position into view. */
+  reveal: () => void
   /** Tells the player what the playback range should go back to while a take has widened it; null when it no longer has. */
   holdRange: (held: { range: { startTick: number; endTick: number } | null } | null) => void
 }
@@ -66,7 +69,8 @@ export interface TrainerState extends TrainerSettings {
 export interface PracticeState {
   /** Whether the practice panel is showing. */
   open: boolean
-  phase: 'idle' | 'starting' | 'recording' | 'results'
+  /** `following`: wait mode, in which the tab holds at each note until it is played. */
+  phase: 'idle' | 'starting' | 'recording' | 'following' | 'results'
   kind: TakeKind
   error: string | null
   /** Outcome of the last delay measurement, in words. */
@@ -97,6 +101,22 @@ export interface PracticeState {
   pass: number
   /** Whether the last take's recording is still held and can be saved to a file. */
   canSave: boolean
+  /** The note wait mode is holding at. */
+  wait: WaitProgress | null
+  /** How the last go in wait mode went. */
+  waitSummary: WaitSummary | null
+}
+
+export interface WaitProgress {
+  /** Notes got past in this time through, and how many there are. */
+  index: number
+  total: number
+  /** Bar the note is in, counted from 0. */
+  bar: number
+  /** What was last heard instead of the right note: a pitch, or a chord that was not complete. */
+  wrong: number | 'chord' | null
+  /** Finished times through, with Loop on. */
+  passes: number
 }
 
 const initialState: PracticeState = {
@@ -120,6 +140,8 @@ const initialState: PracticeState = {
   passes: [],
   pass: 0,
   canSave: false,
+  wait: null,
+  waitSummary: null,
 }
 
 const percent = (share: number) => `${Math.round(share * 100)}%`
@@ -150,6 +172,37 @@ interface Pass {
   /** Waits for the pass's last notes before scoring it. */
   timer: number | null
 }
+
+/** A go in wait mode. */
+interface WaitRun {
+  follower: WaitFollower<WaitNote>
+  detector: NoteDetector
+  /** Audio fed to the detector, in samples. */
+  fed: number
+  sampleRate: number
+  trackIndex: number
+  pitch: number
+  marks: Map<alphaTab.model.Note, Mark>
+  /** Times through already shown, to see when it goes round. */
+  passesShown: number
+  /** The song being followed. */
+  score: alphaTab.model.Score
+}
+
+type WaitNote = TabNote & WaitTarget
+
+/** A tab note as wait mode needs it: whether it may sound unpicked, and the grace notes before it. */
+function waitNote(note: TabNote, pitch: number): WaitNote {
+  const beat = note.notes[0]?.beat
+  const grace: number[] = []
+  for (let before = beat?.previousBeat; before && before.graceType !== 0; before = before.previousBeat) {
+    for (const item of before.notes) if (!item.isDead) grace.push(item.realValue + pitch)
+  }
+  const slurred = note.notes.some((item) => item.isHammerPullDestination || item.isSlurDestination || item.slideOrigin !== null)
+  return { ...note, legato: slurred || grace.length > 0, grace }
+}
+
+const WAIT_MARK: Record<WaitOutcome, Mark> = { firstTry: 'onTime', retried: 'late', skipped: 'missed' }
 
 /** What a scored pass left behind, for showing once the take is over. */
 interface PassOutcome {
@@ -264,6 +317,13 @@ export function usePractice(
   const optionsRef = useRef(options)
   const micRef = useRef<MicInput | null>(null)
   const takeRef = useRef<Take | null>(null)
+  const waitRef = useRef<WaitRun | null>(null)
+  /** Counts goes in wait mode, so a slow start can tell it was called off. */
+  const waitRequest = useRef(0)
+  const syncWaitRef = useRef<(run: WaitRun) => void>(() => {})
+  /** True while wait mode is getting ready, before it is listening. */
+  const waitStarting = useRef(false)
+  const micLostRef = useRef<(mic: MicInput) => void>(() => {})
   /** The last finished practice take, held until the next one starts. */
   const savedRef = useRef<Take | null>(null)
   const markedRef = useRef<Map<alphaTab.model.Note, Mark>>(new Map())
@@ -360,7 +420,14 @@ export function usePractice(
           return null
         }
         micRef.current = mic
+        mic.onLost = () => micLostRef.current(mic)
         mic.onBlock = (block) => {
+          const run = waitRef.current
+          if (run) {
+            run.detector.feed(block.samples)
+            run.fed += block.samples.length
+            syncWaitRef.current(run)
+          }
           const take = takeRef.current
           if (take) {
             take.micStartSec ??= block.frame / mic.sampleRate
@@ -809,7 +876,7 @@ export function usePractice(
   const start = useCallback(
     async (kind: TakeKind, nextRound = false) => {
       const api = apiRef.current
-      if (!api?.score || takeRef.current) return
+      if (!api?.score || takeRef.current || waitRef.current) return
       // A press of Start begins a fresh run; the trainer's own rounds carry on with theirs.
       if (!nextRound) {
         endTrainer(null)
@@ -875,6 +942,7 @@ export function usePractice(
         passes: [],
         pass: looping ? 1 : 0,
         canSave: false,
+        waitSummary: null,
       })
       savedRef.current = null
       clearMarks()
@@ -1068,7 +1136,154 @@ export function usePractice(
     startRef.current = start
   }, [start])
 
+  /** Ends a go in wait mode, showing how it went unless it was called off. */
+  const endWait = useCallback(
+    (show: boolean) => {
+      waitRequest.current++
+      const run = waitRef.current
+      waitRef.current = null
+      if (!run) {
+        if (waitStarting.current) {
+          waitStarting.current = false
+          patch({ phase: 'idle', live: null })
+        }
+        return
+      }
+      const summary = run.follower.summary()
+      if (!show) layerRef.current?.clear()
+      patch({ phase: 'idle', wait: null, live: null, waitSummary: show && summary.notes > 0 ? summary : null })
+    },
+    [patch],
+  )
+
+  /** Shows what wait mode just got past: the marks, the cursor and the panel. */
+  const showWaitStep = useCallback((
+    run: WaitRun,
+    api: alphaTab.AlphaTabApi,
+    passed: { target: WaitNote; outcome: WaitOutcome }[],
+    before: WaitNote | null,
+    wrongBefore: number | 'chord' | null,
+  ) => {
+    const { follower } = run
+    if (passed.length === 0 && wrongBefore === follower.wrong) return
+    const passes = follower.summary().passes
+    // Round again: only what has been played this time through keeps its mark.
+    const shown = passes !== run.passesShown ? passed.slice(passed.length - Math.min(follower.index, passed.length)) : passed
+    if (passes !== run.passesShown && !follower.finished) run.marks.clear()
+    run.passesShown = passes
+    for (const { target, outcome } of follower.finished ? passed : shown) {
+      for (const note of target.notes) run.marks.set(note, WAIT_MARK[outcome])
+    }
+    // A note that comes round again in a repeat loses its old mark as it comes up.
+    for (const note of follower.current?.notes ?? []) run.marks.delete(note)
+    if (passed.length > 0) layerRef.current?.set(run.marks)
+    const now = follower.current
+    if (!now) {
+      endWait(true)
+      return
+    }
+    if (passed.length > 0) {
+      api.tickPosition = now.tick
+      if (now.bar !== before?.bar) optionsRef.current.reveal()
+    }
+    patch({
+      live: { hit: follower.index, total: follower.targets.length },
+      wait: {
+        index: follower.index,
+        total: follower.targets.length,
+        bar: now.bar,
+        wrong: follower.wrong,
+        passes,
+      },
+    })
+  }, [endWait, patch])
+
+  /** Brings the cursor, the marks and the panel up to what wait mode has heard. */
+  const syncWait = useCallback(
+    (run: WaitRun) => {
+      const api = apiRef.current
+      if (waitRef.current !== run || !api) return
+      const { follower } = run
+      const before = follower.current
+      const wrongBefore = follower.wrong
+      const passed = follower.settle(run.fed / run.sampleRate)
+      showWaitStep(run, api, passed, before, wrongBefore)
+    },
+    [showWaitStep],
+  )
+  useEffect(() => {
+    syncWaitRef.current = syncWait
+  })
+
+  /** Starts wait mode at the selected bars, or at the bar the position is in. */
+  const startWait = useCallback(async () => {
+    const api = apiRef.current
+    if (!api?.score || takeRef.current || waitRef.current) return
+    optionsRef.current.releaseLeadIn()
+    endTrainer(null)
+    const current = playerRef.current
+    const lookup = api.tickCache
+    const track = api.score.tracks.find((t) => t.index === current.activeTrack)
+    if (!lookup || !track) return
+    if (track.staves[0]?.isPercussion) {
+      patch({ error: 'Wait mode listens for pitched notes, so it cannot follow a drum track.' })
+      return
+    }
+    const songEnd = lookup.masterBars[lookup.masterBars.length - 1]?.end ?? 0
+    const selected = api.playbackRange
+    const atEnd = api.tickPosition >= songEnd - 1 - POSITION_SLACK
+    const range = {
+      startTick: selected ? selected.startTick : atEnd ? 0 : (barStartAt(lookup, api.tickPosition) ?? 0),
+      endTick: selected ? selected.endTick : songEnd,
+    }
+    const targets = collectExpected(lookup, track.index, 1, range, current.pitch)
+      .filter(isScored)
+      .map((note) => waitNote(note, current.pitch))
+    if (targets.length === 0) {
+      patch({ error: 'There are no notes to play on this track from here.' })
+      return
+    }
+    const request = ++waitRequest.current
+    waitStarting.current = true
+    patch({ phase: 'starting', kind: 'practice', error: null, notice: null, result: null, live: null, passes: [], pass: 0, canSave: false, waitSummary: null })
+    savedRef.current = null
+    clearMarks()
+    const mic = micRef.current ?? (await openMic(loadPracticeSettings().inputId))
+    if (request !== waitRequest.current) return
+    if (!mic) {
+      waitStarting.current = false
+      patch({ phase: 'idle' })
+      return
+    }
+    await moveAndDraw(api, targets[0].tick)
+    if (request !== waitRequest.current || takeRef.current) return
+    waitStarting.current = false
+    optionsRef.current.reveal()
+    const follower = new WaitFollower(targets, current.isLooping)
+    const run: WaitRun = {
+      follower,
+      detector: new NoteDetector(mic.sampleRate, (note) => follower.hear(note)),
+      fed: 0,
+      sampleRate: mic.sampleRate,
+      trackIndex: track.index,
+      pitch: current.pitch,
+      marks: new Map(),
+      passesShown: 0,
+      score: api.score,
+    }
+    waitRef.current = run
+    patch({
+      phase: 'following',
+      live: { hit: 0, total: targets.length },
+      wait: { index: 0, total: targets.length, bar: targets[0].bar, wrong: null, passes: 0 },
+    })
+  }, [clearMarks, endTrainer, openMic, patch])
+
   const stop = useCallback(() => {
+    if (waitRef.current || waitStarting.current) {
+      endWait(true)
+      return
+    }
     const take = takeRef.current
     if (!take) {
       // Between two rounds of the trainer there is no take, only a round waiting to start.
@@ -1078,7 +1293,7 @@ export function usePractice(
     take.userStopped = true
     apiRef.current?.pause()
     finish()
-  }, [endTrainer, finish])
+  }, [endTrainer, endWait, finish])
 
   // Changing the tempo or the tuning mid-take would invalidate the notes expected.
   useEffect(() => {
@@ -1086,8 +1301,41 @@ export function usePractice(
     if (take && (take.speed !== player.speed || take.pitch !== player.pitch)) stop()
   }, [player.speed, player.pitch, stop])
 
+  // Wait mode follows one track in one tuning.
+  useEffect(() => {
+    const run = waitRef.current
+    if (run && (run.pitch !== player.pitch || run.trackIndex !== player.activeTrack)) endWait(false)
+  }, [endWait, player.activeTrack, player.pitch])
+
+  // Another song arriving, by a dropped file say, ends a go at this one.
+  useEffect(() => {
+    if (!api) return
+    const onLoaded = (score: alphaTab.model.Score) => {
+      if (waitStarting.current || (waitRef.current && waitRef.current.score !== score)) endWait(false)
+    }
+    api.scoreLoaded.on(onLoaded)
+    return () => api.scoreLoaded.off(onLoaded)
+  }, [api, endWait])
+
+  // An input that goes away, such as a headset unplugged, ends what was listening to it.
+  useEffect(() => {
+    micLostRef.current = (mic) => {
+      if (micRef.current !== mic) return
+      endWait(true)
+      const taking = takeRef.current !== null
+      if (taking) stop()
+      patch({ micReady: false, level: 0, error: 'The audio input was disconnected. Close Practice and open it again to reconnect.' })
+      // A take being finished still reads the input's clock for a moment.
+      window.setTimeout(() => {
+        if (micRef.current === mic) closeMic()
+      }, taking ? 1500 : 0)
+    }
+  })
+
   useEffect(
     () => () => {
+      waitRequest.current++
+      waitRef.current = null
       abortTake()
       micRequest.current++
       micRef.current?.close()
@@ -1147,6 +1395,7 @@ export function usePractice(
       closePanel: () => {
         if (takeRef.current) apiRef.current?.pause()
         abortTake()
+        endWait(false)
         closeMic()
         clearMarks()
         patch({
@@ -1158,6 +1407,8 @@ export function usePractice(
           live: null,
           pass: 0,
           passes: [],
+          wait: null,
+          waitSummary: null,
         })
       },
       selectInput: (id: string) => {
@@ -1190,11 +1441,23 @@ export function usePractice(
         setState((s) => ({ ...s, trainer: { ...s.trainer, ...settings.trainer } }))
       },
       start: () => void start('practice'),
+      startWait: () => void startWait(),
+      /** Moves wait mode past a note the microphone will not catch. */
+      skipWaitNote: () => {
+        const run = waitRef.current
+        const api = apiRef.current
+        if (!run || !api) return
+        const before = run.follower.current
+        const wrong = run.follower.wrong
+        const passed = run.follower.skip(run.fed / run.sampleRate)
+        if (passed) showWaitStep(run, api, [passed], before, wrong)
+      },
       measure: () => void start('measure'),
       stop,
       dismissResult: () => {
         clearMarks()
-        patch({ phase: 'idle', result: null })
+        layerRef.current?.clear()
+        patch({ phase: 'idle', result: null, waitSummary: null })
       },
       /** Downloads the last take: its recording, with what was expected and heard inside. */
       saveTake: () => {
@@ -1212,7 +1475,7 @@ export function usePractice(
         return take && report ? describeTake(report, inputLevel(take.audio)) : null
       },
     }),
-    [abortTake, clearMarks, closeMic, openMic, patch, start, stop, updateSettings],
+    [abortTake, clearMarks, closeMic, endWait, openMic, patch, showWaitStep, start, startWait, stop, updateSettings],
   )
 
   return { state, actions }

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { TakeRecord } from '../library/types'
 import { TIMING_LEEWAYS, type TimingLeeway } from '../practice/matching'
+import { noteName } from '../tuner/tuning'
 import { DELAY_SOURCE_TEXT, type TakeDetails } from '../practice/takeReport'
 import { timingHabits } from '../practice/tendencies'
 import { TRAINER_STEPS, TRAINER_THRESHOLDS } from '../practice/trainer'
@@ -110,7 +111,8 @@ interface Props {
 export function PracticePanel({ state, actions, speed, takes, onLoopBar, onClearHistory, onDrill }: Props) {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [report, setReport] = useState<TakeDetails | null>(null)
-  const recording = state.phase === 'recording' || state.phase === 'starting'
+  const following = state.phase === 'following'
+  const recording = state.phase === 'recording' || state.phase === 'starting' || following
   const measuring = recording && state.kind === 'measure'
   const { trainer } = state
   const practising = (recording && state.kind === 'practice') || trainer.running
@@ -139,6 +141,23 @@ export function PracticePanel({ state, actions, speed, takes, onLoopBar, onClear
           <Icon name={practising ? 'stop' : 'mic'} />
           {practising ? (trainer.running ? 'Stop trainer' : 'Stop') : 'Start practice'}
         </button>
+        {!busy && (
+          <button
+            type="button"
+            className="toggle"
+            disabled={!state.micReady}
+            title="The tab holds at each note until you play it, with no tempo to keep up with"
+            onClick={actions.startWait}
+          >
+            <Icon name="wait" />
+            Wait mode
+          </button>
+        )}
+        {following && (
+          <button type="button" className="toggle" title="Move on when the microphone will not catch this note" onClick={actions.skipWaitNote}>
+            Skip note
+          </button>
+        )}
         {recording && state.kind === 'practice' && state.live && (
           <span className="practice-live" role="status">
             {state.live.hit} / {state.live.total} notes
@@ -313,6 +332,48 @@ export function PracticePanel({ state, actions, speed, takes, onLoopBar, onClear
           {state.passes.length} passes: {state.passes.map(percent).join(', ')}. The result below is
           the last one.
         </p>
+      )}
+      {following && state.wait && (
+        <p className="practice-message wait-status" role="status">
+          Bar {state.wait.bar + 1}: play the note at the cursor.
+          {state.wait.wrong === 'chord' && <strong> Not the whole chord yet, try again.</strong>}
+          {typeof state.wait.wrong === 'number' && <strong> Heard {noteName(state.wait.wrong)}, try again.</strong>}
+          {state.wait.passes > 0 && <> {state.wait.passes} times through.</>}
+        </p>
+      )}
+      {!following && state.waitSummary && (
+        <div className="practice-results" role="status">
+          <div className="practice-score">
+            <strong>{percent(state.waitSummary.firstTry / state.waitSummary.notes)}</strong>
+            <span>
+              {state.waitSummary.firstTry} of {state.waitSummary.notes} notes first time
+            </span>
+          </div>
+          <ul className="practice-breakdown">
+            <li>
+              <Shape mark="onTime" />
+              {state.waitSummary.firstTry} first time
+            </li>
+            <li>
+              <Shape mark="late" />
+              {state.waitSummary.retried} after another try
+            </li>
+            <li>
+              <Shape mark="missed" />
+              {state.waitSummary.skipped} skipped
+            </li>
+          </ul>
+          {state.waitSummary.troubleBars.length > 0 && (
+            <p className="practice-detail">
+              Worth another look: {state.waitSummary.troubleBars.length === 1 ? 'bar' : 'bars'}{' '}
+              {state.waitSummary.troubleBars.map((bar) => bar + 1).join(', ')}.
+            </p>
+          )}
+          <button type="button" className="toggle" onClick={actions.dismissResult}>
+            <Icon name="close" />
+            Clear results
+          </button>
+        </div>
       )}
       {measuring && (
         <p className="practice-message" role="status">

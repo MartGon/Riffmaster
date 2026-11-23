@@ -65,6 +65,8 @@ export class MicInput {
   /** Smallest observed gap between the page clock and the audio clock, in ms. */
   private clockOffsetMs = Infinity
   onBlock: ((block: MicBlock) => void) | null = null
+  /** Called when the input goes away by itself, such as a device unplugged. */
+  onLost: (() => void) | null = null
 
   private constructor(context: AudioContext, stream: MediaStream, node: AudioWorkletNode) {
     this.context = context
@@ -74,6 +76,7 @@ export class MicInput {
     this.trackSettings = track?.getSettings() ?? {}
     this.deviceId = this.trackSettings.deviceId ?? ''
     this.label = track?.label ?? ''
+    track?.addEventListener('ended', () => this.onLost?.())
     node.port.onmessage = (event: MessageEvent<{ frame: number; samples: Float32Array }>) => {
       const { frame, samples } = event.data
       this.firstFrame ??= frame
@@ -139,6 +142,7 @@ export class MicInput {
 
   close(): void {
     this.onBlock = null
+    this.onLost = null
     for (const track of this.stream.getTracks()) track.stop()
     void this.context.close()
     recordingEnded()

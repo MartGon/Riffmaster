@@ -15,6 +15,8 @@ export interface DetectedNote {
    * played. Missing for a note found as a change of pitch without an attack.
    */
   present?: number[]
+  /** Found as a change of pitch with no attack: a hammer-on, pull-off, slide or bend. */
+  legato?: boolean
 }
 
 export interface DetectorOptions {
@@ -337,7 +339,7 @@ export class NoteDetector {
       this.current = { midi, confirmed: true }
       if (frame - this.lastNoteFrame >= this.options.minGapSec * this.sampleRate) {
         this.lastNoteFrame = frame
-        this.onNote({ timeSec: frame / this.sampleRate, midi: [midi] })
+        this.onNote({ timeSec: frame / this.sampleRate, midi: [midi], legato: true })
       }
     } else {
       // The reading describes the middle of its window.
