@@ -257,6 +257,40 @@ export function matchNotes(
   return { results, extraNotes: played.length - usedPlayed.size, usedPlayed }
 }
 
+/**
+ * Matches `expected`, with the notes of an unscored run-up taking part: they
+ * claim what was played for them, so a run-up note cannot pass for a nearby
+ * scored note that was never played. Results are those of `expected` only.
+ * What was heard during the run-up, right or wrong, is not an extra note.
+ */
+export function matchAfterRunUp(
+  expected: ExpectedNote[],
+  runUp: ExpectedNote[],
+  played: PlayedNote[],
+  latencyMs: number,
+  options: MatchOptions = defaultMatchOptions,
+): { results: NoteResult[]; extraNotes: number; usedPlayed: Set<number> } {
+  if (runUp.length === 0) return matchNotes(expected, played, latencyMs, options)
+  const all = [
+    ...expected.map((note) => ({ note, scored: true })),
+    ...runUp.map((note) => ({ note, scored: false })),
+  ].sort((a, b) => a.note.timeMs - b.note.timeMs)
+  const { results, usedPlayed } = matchNotes(all.map((entry) => entry.note), played, latencyMs, options)
+  const distance = (notes: ExpectedNote[], at: number) =>
+    notes.reduce((nearest, note) => Math.min(nearest, Math.abs(note.timeMs - at)), Number.POSITIVE_INFINITY)
+  played.forEach((note, index) => {
+    if (usedPlayed.has(index)) return
+    const at = note.timeMs - latencyMs
+    const toRunUp = distance(runUp, at)
+    if (toRunUp <= options.windowMs && toRunUp < distance(expected, at)) usedPlayed.add(index)
+  })
+  return {
+    results: results.filter((_, index) => all[index].scored),
+    extraNotes: played.length - usedPlayed.size,
+    usedPlayed,
+  }
+}
+
 export interface PracticeSummary {
   /** Notes and chords that were scored, inside the played section. */
   scored: number

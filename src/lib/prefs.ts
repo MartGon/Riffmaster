@@ -8,6 +8,8 @@ export interface Prefs {
   showFingering: boolean
   /** Overall volume as a factor, 1 being full. */
   masterVolume: number
+  /** Playing selected bars starts one bar before them. */
+  leadIn: boolean
 }
 
 const KEY = 'riffmaster.prefs'
@@ -21,6 +23,7 @@ const defaults: Prefs = {
   showFretboard: false,
   showFingering: false,
   masterVolume: 1,
+  leadIn: false,
 }
 
 export function loadPrefs(): Prefs {
@@ -36,6 +39,7 @@ export function loadPrefs(): Prefs {
         typeof stored.masterVolume === 'number' && stored.masterVolume >= 0 && stored.masterVolume <= MAX_VOLUME
           ? stored.masterVolume
           : 1,
+      leadIn: stored.leadIn === true,
     }
   } catch {
     return { ...defaults }

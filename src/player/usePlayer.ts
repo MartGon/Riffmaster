@@ -7,7 +7,7 @@ import type { SongSettings } from '../library/types'
 import { snapSelectionToBars } from '../lib/loopRange'
 import { listSections, type SongSection } from '../lib/sections'
 import { barAtPoint } from './barAtPoint'
-import { barStartAt, moveAndDraw, playbackRange } from './seek'
+import { barStartAt, leadInStart, moveAndDraw, playbackRange } from './seek'
 import { splitTrackName } from '../lib/trackName'
 import { isDark, onThemeChange } from '../lib/theme'
 import { StaffCursorHandler, systemStaffBand, trimSelection } from './staffBand'
@@ -61,6 +61,8 @@ export interface PlayerState {
   hasLoopRange: boolean
   metronome: boolean
   countIn: boolean
+  /** Playing selected bars starts one bar before them. */
+  leadIn: boolean
   showNotation: boolean
   /** Overall volume as a factor, 1 being full. */
   masterVolume: number
@@ -93,6 +95,7 @@ const initialState: PlayerState = {
   hasLoopRange: false,
   metronome: false,
   countIn: false,
+  leadIn: false,
   showNotation: false,
   masterVolume: 1,
   pitch: 0,
@@ -356,6 +359,21 @@ export function usePlayer() {
   const apiRef = useRef<alphaTab.AlphaTabApi | null>(null)
   /** Set while Play waits for the jump back to the bar's start before playing. */
   const startingPlay = useRef(false)
+  /** The selection, while playback is widened to run up to it from the bar before. */
+  const leadIn = useRef<{ startTick: number; endTick: number } | null>(null)
+  /** What the range goes back to while a practice take has widened it. */
+  const heldRange = useRef<{ range: { startTick: number; endTick: number } | null } | null>(null)
+  /** Puts the playback range back on the selection, keeping a position inside it. */
+  const releaseLeadIn = useCallback(() => {
+    const selected = leadIn.current
+    const api = apiRef.current
+    leadIn.current = null
+    if (!selected || !api) return
+    const tick = api.tickPosition
+    api.playbackRange = playbackRange(selected)
+    // Set either way: the position alphaTab shows does not follow a new range by itself.
+    api.tickPosition = tick > selected.startTick && tick < selected.endTick ? tick : selected.startTick
+  }, [])
   // Settings of the song being loaded, applied once its score arrives.
   const pendingSettings = useRef<SongSettings | null>(null)
   /** Bars of the current selection, so it can be drawn again on another track. */
@@ -791,9 +809,13 @@ export function usePlayer() {
     function rebuildAudio() {
       if (rebuilt) return
       window.clearInterval(stallTimer)
-      const range = api.playbackRange
+      releaseLeadIn()
+      // A take's own wider range ends with the take, so it is not the one to put back.
+      const held = heldRange.current
+      const range = held ? held.range : api.playbackRange
+      const atTick = api.tickPosition
       rebuilt = {
-        tick: api.tickPosition,
+        tick: held?.range && (atTick < held.range.startTick || atTick >= held.range.endTick) ? held.range.startTick : atTick,
         range: range ? { startTick: range.startTick, endTick: range.endTick } : null,
         sounds: false,
       }
@@ -844,6 +866,7 @@ export function usePlayer() {
         watchStall()
       } else {
         window.clearInterval(stallTimer)
+        releaseLeadIn()
         if (countingIn && !rebuilt) leaveCountIn()
         countingIn = false
       }
@@ -881,7 +904,10 @@ export function usePlayer() {
       }))
     })
     api.playbackRangeChanged.on((args) => {
-      if (args.playbackRange === null) selectedBars.current = null
+      if (args.playbackRange === null) {
+        selectedBars.current = null
+        leadIn.current = null
+      }
       patch({ hasLoopRange: args.playbackRange !== null })
     })
 
@@ -900,6 +926,7 @@ export function usePlayer() {
       if (selection.startBeat === selection.endBeat) return
       const { start, end } = snapSelectionToBars(selection.startBeat, selection.endBeat)
       selectedBars.current = { first: start.voice.bar.index, last: end.voice.bar.index }
+      leadIn.current = null
       // Deferred so alphaTab finishes its own mouse-up handling first.
       window.setTimeout(() => {
         if (apiRef.current !== api) return
@@ -975,7 +1002,7 @@ export function usePlayer() {
       api.destroy()
       setState({ ...initialState, ...loadPrefs() })
     }
-  }, [])
+  }, [releaseLeadIn])
 
   /** Loads a tab file's bytes and applies the song's remembered settings, optionally looping some bars once it is ready. */
   const load = useCallback((data: ArrayBuffer, settings: SongSettings, loopBars?: { first: number; last: number; firstPlayed?: boolean } | null) => {
@@ -984,6 +1011,8 @@ export function usePlayer() {
     api.stop()
     keepAfterEdit.current = null
     restoreSelection.current = null
+    leadIn.current = null
+    heldRange.current = null
     loopAfterLoad.current = loopBars ? { ...loopBars, score: null, drawn: false, midi: false } : null
     // A new song starts without a half-made choice of bars.
     setPicking(null)
@@ -1005,6 +1034,34 @@ export function usePlayer() {
         tracks: s.tracks.map((t) => (t.index === index ? { ...t, ...partial } : t)),
       }))
 
+    /**
+     * Starts playing selected bars from the bar before them, when that is
+     * asked for. The range is only widened while playing, so everything else
+     * goes on seeing the selection. Returns whether it took over the Play.
+     */
+    const startLeadIn = (api: alphaTab.AlphaTabApi): boolean => {
+      const range = api.playbackRange
+      const lookup = api.tickCache
+      if (!stateRef.current.leadIn || !range || !lookup || leadIn.current) return false
+      const first = leadInStart(lookup, range.startTick)
+      if (first === null) return false
+      if (startingPlay.current) return true
+      startingPlay.current = true
+      const selected = { startTick: range.startTick, endTick: range.endTick }
+      const tick = api.tickPosition
+      // Resumed partway through the selection it goes on from there, from the bar's start with a count-in.
+      const inside = tick > selected.startTick + 4 && tick < selected.endTick
+      const from = !inside ? first : api.countInVolume > 0 ? (barStartAt(lookup, tick) ?? tick) : tick
+      leadIn.current = selected
+      api.playbackRange = playbackRange({ startTick: first, endTick: selected.endTick })
+      setState((s) => ({ ...s, currentTick: from }))
+      void moveAndDraw(api, from).then(() => {
+        startingPlay.current = false
+        if (apiRef.current === api && leadIn.current === selected) api.play()
+      })
+      return true
+    }
+
     return {
       load,
       /**
@@ -1020,6 +1077,7 @@ export function usePlayer() {
       ) =>
         withApi((api) => {
           const current = stateRef.current
+          leadIn.current = null
           const exists = (index: number) => index < score.tracks.length
           // Mute and solo follow their tracks when a track is added or removed.
           const moved = (index: number): number | null => {
@@ -1073,9 +1131,10 @@ export function usePlayer() {
           // waking it is what the tap was for, not pausing.
           if (asleep && api.playerState === alphaTab.synth.PlayerState.Playing) return
           if (api.playerState === alphaTab.synth.PlayerState.Playing || api.countInVolume <= 0) {
-            api.playPause()
+            if (api.playerState === alphaTab.synth.PlayerState.Playing || !startLeadIn(api)) api.playPause()
             return
           }
+          if (startLeadIn(api)) return
           // With a count-in, playback goes back to the start of the bar, as a practice take does.
           const from = countInStart(api)
           if (from === null) {
@@ -1090,7 +1149,16 @@ export function usePlayer() {
             if (apiRef.current === api && api.playerState !== alphaTab.synth.PlayerState.Playing) api.play()
           })
         }),
-      stop: () => withApi((api) => api.stop()),
+      stop: () =>
+        withApi((api) => {
+          api.stop()
+          // While playing, the player's report of stopping does this.
+          if (api.playerState !== alphaTab.synth.PlayerState.Playing) releaseLeadIn()
+        }),
+      releaseLeadIn,
+      holdRange: (held: { range: { startTick: number; endTick: number } | null } | null) => {
+        heldRange.current = held
+      },
       seek: (tick: number) =>
         withApi((api) => {
           api.tickPosition = tick
@@ -1173,6 +1241,7 @@ export function usePlayer() {
       clearLoopRange: () =>
         withApi((api) => {
           selectedBars.current = null
+          leadIn.current = null
           api.playbackRange = null
           api.clearPlaybackRangeHighlight()
           setState((s) => ({ ...s, hasLoopRange: false }))
@@ -1192,6 +1261,7 @@ export function usePlayer() {
       /** Selects a run of bars as the section to play, optionally repeating it. */
       selectBars: (firstBar: number, lastBar: number, loop: boolean) =>
         withApi((api) => {
+          leadIn.current = null
           const beats = barsBeats(api.tracks[0], firstBar, Math.max(firstBar, lastBar))
           if (!beats) return
           selectedBars.current = { first: firstBar, last: Math.max(firstBar, lastBar) }
@@ -1237,6 +1307,11 @@ export function usePlayer() {
           savePrefs({ countIn })
           setState((s) => ({ ...s, countIn }))
         }),
+      setLeadIn: (on: boolean) => {
+        savePrefs({ leadIn: on })
+        if (!on) releaseLeadIn()
+        setState((s) => ({ ...s, leadIn: on }))
+      },
       setShowNotation: (showNotation: boolean) =>
         withApi((api) => {
           api.settings.display.staveProfile = staveProfileFor(api.tracks[0], showNotation)
@@ -1246,7 +1321,7 @@ export function usePlayer() {
           setState((s) => ({ ...s, showNotation }))
         }),
     }
-  }, [load])
+  }, [load, releaseLeadIn])
 
   useEffect(() => {
     actionsRef.current = actions

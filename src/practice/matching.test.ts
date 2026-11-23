@@ -4,7 +4,7 @@ import {
   matchOptionsFor,
   type TimingLeeway,
   type ExpectedNote,
-  matchNotes,
+  matchAfterRunUp, matchNotes,
   type PlayedNote,
   pitchMatches,
   summarize,
@@ -230,5 +230,49 @@ describe('timing leeway', () => {
     expect(grades('normal')).toEqual(['onTime', 'early', 'missed'])
     expect(grades('relaxed')).toEqual(['onTime', 'early', 'late'])
     expect(grades('loose')).toEqual(['onTime', 'onTime', 'late'])
+  })
+})
+
+describe('a run-up before the scored notes', () => {
+  const options = { pitchTolerance: 0.6, windowMs: 200, onTimeMs: 80 }
+
+  it('keeps a run-up note from passing for a missed scored note', () => {
+    const runUp = [{ timeMs: 844, midi: [60] }]
+    const scored = [{ timeMs: 1000, midi: [60] }, { timeMs: 1500, midi: [62] }]
+    const played = [{ timeMs: 844, midi: [60] }, { timeMs: 1500, midi: [62] }]
+    const { results, extraNotes } = matchAfterRunUp(scored, runUp, played, 0, options)
+    expect(results.map((result) => result.grade)).toEqual(['missed', 'onTime'])
+    expect(extraNotes).toBe(0)
+  })
+
+  it('does not count a wrong note in the run-up as an extra note', () => {
+    const runUp = [{ timeMs: 200, midi: [55] }]
+    const scored = [{ timeMs: 1000, midi: [60] }]
+    const played = [{ timeMs: 200, midi: [57] }, { timeMs: 1000, midi: [60] }]
+    const { results, extraNotes } = matchAfterRunUp(scored, runUp, played, 0, options)
+    expect(results.map((result) => result.grade)).toEqual(['onTime'])
+    expect(extraNotes).toBe(0)
+  })
+
+  it('does not count a wrong last run-up note just before the first scored note', () => {
+    const runUp = [{ timeMs: 870, midi: [55] }]
+    const scored = [{ timeMs: 1000, midi: [60] }]
+    const played = [{ timeMs: 870, midi: [57] }, { timeMs: 1000, midi: [60] }]
+    expect(matchAfterRunUp(scored, runUp, played, 0, { ...options, windowMs: 150 }).extraNotes).toBe(0)
+  })
+
+  it('lets the next pass keep its first run-up note at the turn of a loop', () => {
+    const scored = [{ timeMs: 900, midi: [60] }, { timeMs: 1000, midi: [64] }]
+    const runUp = [{ timeMs: 1130, midi: [64] }]
+    const played = [{ timeMs: 900, midi: [60] }, { timeMs: 1130, midi: [64] }]
+    const { results } = matchAfterRunUp(scored, runUp, played, 0, { ...options, windowMs: 260 })
+    expect(results.map((result) => result.grade)).toEqual(['onTime', 'missed'])
+  })
+
+  it('still counts a wrong note among the scored notes', () => {
+    const runUp = [{ timeMs: 200, midi: [55] }]
+    const scored = [{ timeMs: 1000, midi: [60] }]
+    const played = [{ timeMs: 1000, midi: [60] }, { timeMs: 1100, midi: [70] }]
+    expect(matchAfterRunUp(scored, runUp, played, 0, options).extraNotes).toBe(1)
   })
 })

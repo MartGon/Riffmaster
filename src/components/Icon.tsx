@@ -15,6 +15,13 @@ const paths = {
       <path d="M20.5 13v2a3 3 0 0 1-3 3h-14" />
     </>
   ),
+  leadIn: (
+    <>
+      <path d="M3 12h11" />
+      <path d="M10.5 8l4 4-4 4" />
+      <path d="M19 5v14" />
+    </>
+  ),
   metronome: (
     <>
       <path d="M8.5 3h7l4 18h-15z" />

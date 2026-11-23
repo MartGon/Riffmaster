@@ -34,6 +34,7 @@ They need:
 | `tuning.mjs` | The Tuning list: choices named after the tuning they need, the output heard shifted (pitch read from what reaches the speakers), practice expecting and scoring the shifted notes, the tuner following, the choice kept with the song. Dev server on 5173 (or APP_URL); needs no tab file. `node tuning.mjs ui\|practice\|all` |
 | `plan.mjs` | Today's practice plan: built from the history, each step opened on its bars at its tempo, ticked off by today's takes, skipping, the warm-up, phone size. Dev server on 5173 (or APP_URL); needs the sample tab |
 | `drill.mjs` | Riff to exercise: a drill made from a plan step's bars, its parts and notes, played and scored, kept in the tuning, found again rather than added twice. Dev server on 5173 (or APP_URL); needs the sample tab |
+| `leadin.mjs` | Lead-in: selected bars start one bar early in plain Play and in a take, on every pass of a loop, without scoring that bar; the selection comes back afterwards. Dev server on 5173; run `expected.mjs` first; needs the sample tab |
 | `mixer.mjs` | Master and track volumes, remembered per device and per song; the app's name |
 | `editor.mjs` | The tab editor: typing, undo, clicks, copy and paste, bars, saving and restoring, the unsaved-changes question, new tabs, phone size. `node editor.mjs song\|new\|phone\|all` |
 | `theme.mjs` | The theme switch: system, light and dark, remembered after a reload and in other tabs, the score re-coloured |

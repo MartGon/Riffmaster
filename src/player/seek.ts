@@ -20,7 +20,7 @@ export async function moveAndDraw(api: alphaTab.AlphaTabApi, tick: number): Prom
  * sends the position back to the start of the beat playing; a move sent
  * before it would be undone.
  */
-function paused(api: alphaTab.AlphaTabApi): Promise<void> {
+export function paused(api: alphaTab.AlphaTabApi): Promise<void> {
   return waitFor(api.playerStateChanged, (args) => args.state !== alphaTab.synth.PlayerState.Playing, () => api.pause())
 }
 
@@ -60,6 +60,16 @@ function waitFor<T>(emitter: alphaTab.IEventEmitterOfT<T>, matches: (args: T) =>
 /** Start of the bar played at `tick`, or null when no bar is (past the song's end). */
 export function barStartAt(lookup: NonNullable<alphaTab.AlphaTabApi['tickCache']>, tick: number): number | null {
   return lookup.masterBars.find((bar) => tick >= bar.start && tick < bar.end)?.start ?? null
+}
+
+/**
+ * Start of the bar played just before the one at `tick`, for a run-up into a
+ * selection; null at the start of the song. Follows repeats, as playback does.
+ */
+export function leadInStart(lookup: { masterBars: { start: number; end: number }[] }, tick: number): number | null {
+  const bars = lookup.masterBars
+  const own = bars.findIndex((bar) => tick >= bar.start && tick < bar.end)
+  return own > 0 ? bars[own - 1].start : null
 }
 
 /** A playback range for alphaTab, from `startTick` up to `endTick`. */

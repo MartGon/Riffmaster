@@ -200,6 +200,17 @@ export function Transport({
                 <span className="toggle-label">Select bars</span>
               </button>
             )}
+            <button
+              type="button"
+              className="toggle"
+              aria-pressed={state.leadIn}
+              disabled={!ready || practiceBusy}
+              title="Lead-in: selected bars start one bar early, and that bar is not scored"
+              onClick={() => actions.setLeadIn(!state.leadIn)}
+            >
+              <Icon name="leadIn" />
+              <span className="toggle-label">Lead-in</span>
+            </button>
             <Toggle
               icon="metronome"
               label="Metronome"

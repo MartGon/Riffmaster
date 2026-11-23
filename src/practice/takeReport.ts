@@ -10,7 +10,7 @@ import {
   TIMING_LEEWAYS,
   type TimingLeeway,
   estimateLatency,
-  matchNotes,
+  matchAfterRunUp,
   matchOptionsFor,
   summarize,
 } from './matching'
@@ -57,6 +57,8 @@ export interface TakeReport {
   /** Strings on the practised track. Absent in takes saved before it was recorded. */
   strings?: number
   expected: TakeExpectedNote[]
+  /** Notes of a run-up bar before the selection: played, but not scored. Missing in older takes. */
+  runUp?: { wavSec: number; midi: number[] }[]
   heard: TakeHeardNote[]
 }
 
@@ -143,7 +145,11 @@ export function analyzeTake(
   })
   const latencyMs = estimate?.latencyMs ?? report.latencyMs
   const leeway = options.leeway ?? report.leeway ?? 'normal'
-  const { results, extraNotes } = matchNotes(expected, played, latencyMs, matchOptionsFor(leeway))
+  const runUp: ExpectedNote[] = (report.runUp ?? []).map((note) => ({
+    timeMs: note.wavSec * 1000 - report.latencyMs,
+    midi: note.midi,
+  }))
+  const { results, extraNotes } = matchAfterRunUp(expected, runUp, played, latencyMs, matchOptionsFor(leeway))
   const current: TakeScoring = {
     results,
     summary: summarize(results, extraNotes),

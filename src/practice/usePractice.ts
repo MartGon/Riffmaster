@@ -3,7 +3,7 @@ import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } fro
 import type { TakeRecord } from '../library/types'
 import { isDark, onThemeChange } from '../lib/theme'
 import type { PlayerState } from '../player/usePlayer'
-import { barStartAt, moveAndDraw, playbackRange } from '../player/seek'
+import { barStartAt, leadInStart, moveAndDraw, paused, playbackRange } from '../player/seek'
 import { defaultDetectorOptions, type DetectedNote, NoteDetector } from './detector'
 import {
   type CalibrationMode,
@@ -18,7 +18,7 @@ import { colourNotes, MarkLayer } from './marks'
 import {
   estimateLatency,
   isScored,
-  matchNotes,
+  matchAfterRunUp,
   matchOptionsFor,
   type NoteGrade,
   type PlayedNote,
@@ -48,6 +48,10 @@ export interface PracticeOptions {
   setSpeed: (speed: number) => void
   /** Called with every finished take that is worth remembering. */
   onTake: (take: NewTake) => void
+  /** Ends a plain Play's run-up, so the playback range is the selection again. */
+  releaseLeadIn: () => void
+  /** Tells the player what the playback range should go back to while a take has widened it; null when it no longer has. */
+  holdRange: (held: { range: { startTick: number; endTick: number } | null } | null) => void
 }
 
 export interface TrainerState extends TrainerSettings {
@@ -158,6 +162,8 @@ interface Take {
   /** Strings on the practised track, so the report can number them as players do. */
   strings: number
   expected: TabNote[]
+  /** Notes of the bar played before the selection as a run-up; heard, but not scored. */
+  runUp: TabNote[]
   played: DetectedNote[]
   detector: NoteDetector
   /** The input as it was heard, kept so the take can be saved for troubleshooting. */
@@ -170,9 +176,9 @@ interface Take {
   passes: Pass[]
   /** Whether playback loops over `range`, making a new pass each time round. */
   looping: boolean
-  /** The ticks the take plays, from where it started to where it ends. */
+  /** The ticks the take scores, from where it started to where it ends. */
   range: { startTick: number; endTick: number }
-  /** How long one time round the loop takes, in ms at the take's speed. */
+  /** How long one time round the loop takes, run-up bar included, in ms at the take's speed. */
   loopMs: number
   /** The latest scored pass, kept for the end of a looped take. */
   lastOutcome: PassOutcome | null
@@ -423,12 +429,16 @@ export function usePractice(
 
     // The notes every pass has reached, on the shared timeline.
     const timeline: { note: TabNote; pass: number; timeMs: number; midi: number[] }[] = []
+    const runUpLine: { pass: number; timeMs: number; midi: number[] }[] = []
     take.passes.forEach((item, index) => {
       const offset = shift[index]
       if (offset === null) return
       for (const note of take.expected) {
         if (note.timeMs > item.reachedMs) continue
         timeline.push({ note, pass: index, timeMs: note.timeMs + offset, midi: note.midi })
+      }
+      for (const note of take.runUp) {
+        if (note.timeMs <= item.reachedMs) runUpLine.push({ pass: index, timeMs: note.timeMs + offset, midi: note.midi })
       }
     })
     // Heard notes, on the first pass's clock.
@@ -440,7 +450,8 @@ export function usePractice(
       present: note.present,
     }))
 
-    const estimate = estimateLatency(timeline, played, {
+    const allNotes = [...timeline, ...runUpLine].sort((a, b) => a.timeMs - b.timeMs)
+    const estimate = estimateLatency(allNotes, played, {
       preferMs: measured ?? settings.learned[mic.deviceId],
     })
     let latencyMs = 0
@@ -459,7 +470,11 @@ export function usePractice(
     const latest = take.passes[last].reachedMs + (shift[last] ?? 0)
     const horizon = final ? Number.POSITIVE_INFINITY : latest - 250 - Math.max(0, latencyMs)
     const scored = timeline.filter((entry) => entry.pass < last || entry.timeMs <= horizon)
-    const { results, usedPlayed } = matchNotes(scored, played, latencyMs, options)
+    // A run-up note takes part as soon as its sound can have arrived, without the margin scored
+    // notes wait for: at the turn of a loop it must claim its sound from the pass before.
+    const runUpBy = final ? Number.POSITIVE_INFINITY : latest - Math.max(0, latencyMs)
+    const runUpHeard = runUpLine.filter((entry) => entry.pass < last || entry.timeMs <= runUpBy)
+    const { results, usedPlayed } = matchAfterRunUp(scored, runUpHeard, played, latencyMs, options)
 
     const expected: TabNote[] = []
     const ownResults: typeof results = []
@@ -499,6 +514,7 @@ export function usePractice(
       measuredMs: measured ?? null,
       learnedMs: settings.learned[mic.deviceId] ?? null,
       strings: take.strings,
+      runUp: runUpHeard.map((entry) => ({ wavSec: wavSec(entry.timeMs + latencyMs), midi: entry.midi })),
       expected: scored.map((entry, index) => ({
         pass: entry.pass,
         bar: entry.note.bar,
@@ -772,6 +788,7 @@ export function usePractice(
       if (!api?.score || takeRef.current) return
       // A press of Start begins a fresh run; the trainer's own rounds carry on with theirs.
       if (!nextRound) endTrainer(null)
+      optionsRef.current.releaseLeadIn()
       const current = playerRef.current
       const lookup = api.tickCache
       const track = api.score.tracks.find((t) => t.index === current.activeTrack)
@@ -790,7 +807,8 @@ export function usePractice(
       // bar of clicks plus one for each beat already gone. Later rounds of
       // the speed trainer play what round 1 played.
       const songEnd = lookup.masterBars[lookup.masterBars.length - 1]?.end ?? 0
-      const selected = api.playbackRange
+      const selectedRange = api.playbackRange
+      const selected = selectedRange && { startTick: selectedRange.startTick, endTick: selectedRange.endTick }
       const atEnd = api.tickPosition >= songEnd - 1 - POSITION_SLACK
       const range = (nextRound ? trainerRef.current.range : undefined) ?? {
         startTick: selected ? selected.startTick : atEnd ? 0 : (barStartAt(lookup, api.tickPosition) ?? 0),
@@ -817,6 +835,9 @@ export function usePractice(
       // With Loop on, practice goes round the section until stopped. The
       // speed trainer has rounds of its own instead.
       const looping = kind === 'practice' && current.isLooping && !trainerRef.current.running
+      // A run-up into selected bars is played but not scored. Measuring the delay needs none.
+      const runUp = kind === 'practice' && selected && current.leadIn ? leadInStart(lookup, range.startTick) : null
+      const playStart = runUp ?? range.startTick
       patch({
         phase: 'starting',
         kind,
@@ -857,6 +878,7 @@ export function usePractice(
         trackIndex: track.index,
         strings: track.staves[0]?.tuning.length ?? 0,
         expected,
+        runUp: runUp === null ? [] : collectExpected(lookup, track.index, speed, { startTick: runUp, endTick: range.startTick }, current.pitch),
         played,
         detector: new NoteDetector(mic.sampleRate, (note) => played.push(note)),
         audio: [],
@@ -866,7 +888,7 @@ export function usePractice(
         passes: [newPass(1)],
         looping,
         range,
-        loopMs: (timeAt(range.endTick) - timeAt(range.startTick)) / speed,
+        loopMs: (timeAt(range.endTick) - timeAt(playStart)) / speed,
         lastOutcome: null,
         speed,
         pitch: current.pitch,
@@ -881,8 +903,11 @@ export function usePractice(
       const tracks = api.score.tracks
       api.isLooping = looping
       // Looping without a selection goes round from the starting point to the end.
-      const ownRange = looping && !selected
-      if (ownRange) api.playbackRange = playbackRange(range)
+      const ownRange = (looping && !selected) || runUp !== null
+      if (ownRange) {
+        optionsRef.current.holdRange({ range: selected })
+        api.playbackRange = playbackRange({ startTick: playStart, endTick: range.endTick })
+      }
       if (kind === 'measure') {
         // Only the practised track sounds, so the microphone hears exactly
         // the notes the tab expects.
@@ -895,7 +920,7 @@ export function usePractice(
         api.countInVolume = 1
       }
 
-      const span = range.endTick - range.startTick
+      const span = range.endTick - playStart
       let lastTick = -1
       const onPosition = (args: { currentTime: number; currentTick: number; isSeek: boolean }) => {
         const pass = take.passes[take.passes.length - 1]
@@ -905,7 +930,7 @@ export function usePractice(
           looping &&
           lastTick >= 0 &&
           args.currentTick < lastTick - span / 2 &&
-          args.currentTick <= range.startTick + Math.min(960, span / 2)
+          args.currentTick <= playStart + Math.min(960, span / 2)
         ) {
           lastTick = args.currentTick
           pass.endedAt = performance.now()
@@ -930,7 +955,7 @@ export function usePractice(
         }
         // Played on past the end of a loop, which the player then sends back.
         if (looping && args.currentTick > range.endTick + 480) return
-        if (args.currentTick <= range.startTick) return
+        if (args.currentTick <= playStart) return
         pass.anchors.push(performance.now() - args.currentTime)
         if (args.currentTime > pass.reachedMs) pass.reachedMs = args.currentTime
       }
@@ -968,7 +993,19 @@ export function usePractice(
         api.playerFinished.off(onFinished)
         const now = playerRef.current
         api.isLooping = now.isLooping
-        if (ownRange) api.playbackRange = null
+        if (ownRange) {
+          optionsRef.current.holdRange(null)
+          api.playbackRange = selected ? playbackRange(selected) : null
+        }
+        if (runUp !== null && selected) {
+          // Stopped in the run-up, the player goes back to the beat it was on, outside the selection.
+          const settle = () => {
+            if (takeRef.current && takeRef.current !== take) return
+            if (apiRef.current === api && api.tickPosition < selected.startTick) api.tickPosition = selected.startTick
+          }
+          if (api.playerState === alphaTab.synth.PlayerState.Playing) void paused(api).then(settle)
+          else settle()
+        }
         api.metronomeVolume = now.metronome ? 1 : 0
         api.countInVolume = now.countIn ? 1 : 0
         if (kind === 'measure' && api.score) {
@@ -984,7 +1021,7 @@ export function usePractice(
 
       // Paused if playing, not stopped: a stop would first send the player
       // back to the song's start, showing it there for a moment.
-      const moved = moveAndDraw(api, range.startTick)
+      const moved = moveAndDraw(api, playStart)
       takeRef.current = take
       patch({ phase: 'recording' })
       // Played only once the cursor is drawn at the start: alphaTab draws it

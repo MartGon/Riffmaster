@@ -125,7 +125,12 @@ export default function App() {
   // Sync is optional and runs in the background; changes from other devices refresh the list.
   const refreshLibrary = library.refresh
   useEffect(() => startSync(() => void refreshLibrary()), [refreshLibrary])
-  const practice = usePractice(api, state, marksRef, { setSpeed: actions.setSpeed, onTake })
+  const practice = usePractice(api, state, marksRef, {
+    setSpeed: actions.setSpeed,
+    onTake,
+    releaseLeadIn: actions.releaseLeadIn,
+    holdRange: actions.holdRange,
+  })
   const editLayerRef = useRef<HTMLDivElement>(null)
   /** Whether the open song was edited and saved, so its first version can be restored. */
   const [hasOriginalFile, setHasOriginalFile] = useState(false)
