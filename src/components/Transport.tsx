@@ -41,6 +41,7 @@ interface Props {
   onToggleTuner: () => void
   editorOpen: boolean
   onToggleEditor: () => void
+  onPedal: () => void
   /** Choosing bars by tapping: null when off, else the first bar tapped so far. */
   picking: { first: number | null } | null
 }
@@ -59,6 +60,7 @@ export function Transport({
   onToggleTuner,
   editorOpen,
   onToggleEditor,
+  onPedal,
   picking,
 }: Props) {
   const ready = state.status === 'ready'
@@ -257,6 +259,10 @@ export function Transport({
               disabled={!ready || practiceBusy}
               onChange={onToggleTuner}
             />
+            <button type="button" className="toggle" title="Foot pedal" disabled={!ready || practiceBusy} onClick={onPedal}>
+              <Icon name="pedal" />
+              <span className="toggle-label">Pedal</span>
+            </button>
             <Toggle
               icon="edit"
               label="Edit"

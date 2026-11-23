@@ -28,6 +28,13 @@ const paths = {
       <rect x="13.5" y="5" width="3.5" height="14" rx="1" />
     </>
   ),
+  pedal: (
+    <>
+      <path d="M4 19h16" />
+      <path d="M6 19l11-9 2 2.5-7 6.5" />
+      <circle cx="17.5" cy="7" r="1.5" />
+    </>
+  ),
   metronome: (
     <>
       <path d="M8.5 3h7l4 18h-15z" />

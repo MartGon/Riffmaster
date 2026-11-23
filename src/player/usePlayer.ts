@@ -359,6 +359,10 @@ export function usePlayer() {
   const apiRef = useRef<alphaTab.AlphaTabApi | null>(null)
   /** Set while Play waits for the jump back to the bar's start before playing. */
   const startingPlay = useRef(false)
+  /** Whether a count-in is under way, during which moving the position would cancel the song. */
+  const countingInNow = useRef(false)
+  /** Set while a count-in is being started over; a press of Play or Stop meanwhile calls it off. */
+  const recounting = useRef(false)
   /** The selection, while playback is widened to run up to it from the bar before. */
   const leadIn = useRef<{ startTick: number; endTick: number } | null>(null)
   /** What the range goes back to while a practice take has widened it. */
@@ -410,7 +414,7 @@ export function usePlayer() {
    */
   const [picking, setPicking] = useState<{ first: number | null } | null>(null)
   const pickingRef = useRef(picking)
-  const actionsRef = useRef<{ selectBars: (first: number, last: number, loop: boolean) => void } | null>(null)
+  const actionsRef = useRef<{ selectBars: (first: number, last: number, loop: boolean) => void; playPause: () => void } | null>(null)
   useEffect(() => {
     pickingRef.current = picking
   })
@@ -863,17 +867,22 @@ export function usePlayer() {
       const playing = args.state === alphaTab.synth.PlayerState.Playing
       if (playing) {
         countingIn = api.countInVolume > 0
+        countingInNow.current = countingIn
         watchStall()
       } else {
         window.clearInterval(stallTimer)
         releaseLeadIn()
         if (countingIn && !rebuilt) leaveCountIn()
         countingIn = false
+        countingInNow.current = false
       }
       patch({ isPlaying: playing })
     })
     api.playerPositionChanged.on((args) => {
-      if (!args.isSeek) countingIn = false
+      if (!args.isSeek) {
+        countingIn = false
+        countingInNow.current = false
+      }
     })
     // Coming back to the page is a good moment to wake the audio; iOS may
     // still insist on a tap, which Play then provides.
@@ -1062,6 +1071,23 @@ export function usePlayer() {
       return true
     }
 
+    /**
+     * Moves the position during a count-in: stopped, moved, and started
+     * again, with a new count-in. Moved while counting, the song never starts.
+     */
+    const recount = (api: alphaTab.AlphaTabApi, tick: number) => {
+      if (startingPlay.current) return
+      startingPlay.current = true
+      recounting.current = true
+      setState((s) => ({ ...s, currentTick: tick }))
+      void moveAndDraw(api, tick).then(() => {
+        startingPlay.current = false
+        const goOn = recounting.current
+        recounting.current = false
+        if (goOn && apiRef.current === api && api.playerState !== alphaTab.synth.PlayerState.Playing) actionsRef.current?.playPause()
+      })
+    }
+
     return {
       load,
       /**
@@ -1125,6 +1151,10 @@ export function usePlayer() {
       dismissError: () => setState((s) => ({ ...s, error: null })),
       playPause: () =>
         withApi((api) => {
+          if (recounting.current) {
+            recounting.current = false
+            return
+          }
           prepareWorkletScope(api)
           const asleep = wakeAudio(api)
           // "Playing" with the audio asleep means nothing could be heard:
@@ -1151,6 +1181,7 @@ export function usePlayer() {
         }),
       stop: () =>
         withApi((api) => {
+          recounting.current = false
           api.stop()
           // While playing, the player's report of stopping does this.
           if (api.playerState !== alphaTab.synth.PlayerState.Playing) releaseLeadIn()
@@ -1159,6 +1190,19 @@ export function usePlayer() {
       holdRange: (held: { range: { startTick: number; endTick: number } | null } | null) => {
         heldRange.current = held
       },
+      /** Back to the start of the selected bars, or of the song; playing goes on from there. */
+      restart: () =>
+        withApi((api) => {
+          // During a run-up the range is widened; the selection is where a new one starts from.
+          if (countingInNow.current) {
+            recount(api, leadIn.current?.startTick ?? api.playbackRange?.startTick ?? 0)
+            return
+          }
+          const tick = api.playbackRange?.startTick ?? 0
+          api.tickPosition = tick
+          setState((s) => ({ ...s, currentTick: tick }))
+          if (viewportRef.current && !stateRef.current.isPlaying) scrollToPosition(api, viewportRef.current)
+        }),
       seek: (tick: number) =>
         withApi((api) => {
           api.tickPosition = tick
@@ -1251,6 +1295,11 @@ export function usePlayer() {
         withApi((api) => {
           const tick = api.tickCache ? firstTickOfBar(api.tickCache, bar) : null
           if (tick === null) return
+          if (countingInNow.current) {
+            recount(api, tick)
+            setState((s) => ({ ...s, currentBar: bar }))
+            return
+          }
           api.tickPosition = tick
           // While playing, alphaTab follows the position itself.
           if (viewportRef.current && !stateRef.current.isPlaying) {
@@ -1277,7 +1326,9 @@ export function usePlayer() {
             }
           }
           const tick = api.playbackRange?.startTick
-          if (tick !== undefined) api.tickPosition = tick
+          // During a count-in it starts over from the new bars, with their run-up.
+          if (tick !== undefined && countingInNow.current) recount(api, tick)
+          else if (tick !== undefined) api.tickPosition = tick
           if (loop) api.isLooping = true
           setState((s) => ({
             ...s,

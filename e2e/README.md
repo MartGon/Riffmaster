@@ -37,6 +37,7 @@ They need:
 | `leadin.mjs` | Lead-in: selected bars start one bar early in plain Play and in a take, on every pass of a loop, without scoring that bar; the selection comes back afterwards. Dev server on 5173; run `expected.mjs` first; needs the sample tab |
 | `timing.mjs` | Timing habits: a performance late on every string change is reported, about the right size, in the result and the history. Dev server on 5173; needs the sample tab |
 | `wait.mjs` | Wait mode: the tab holds at each note until it is heard, names a wrong note, skips one the microphone misses, sums up, and adds nothing to the history. Dev server on 5173; needs the sample tab |
+| `pedal.mjs` | Foot pedal: page-turner keys play and stop, go back, reach the next section, start and stop a take, skip in wait mode; keys can be changed; typing, sliders and dialogs keep their keys. Dev server on 5173; needs the sample tab |
 | `mixer.mjs` | Master and track volumes, remembered per device and per song; the app's name |
 | `editor.mjs` | The tab editor: typing, undo, clicks, copy and paste, bars, saving and restoring, the unsaved-changes question, new tabs, phone size. `node editor.mjs song\|new\|phone\|all` |
 | `theme.mjs` | The theme switch: system, light and dark, remembered after a reload and in other tabs, the score re-coloured |

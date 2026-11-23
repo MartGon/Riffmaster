@@ -8,6 +8,7 @@ import { Fretboard } from './components/Fretboard'
 import { Icon } from './components/Icon'
 import { LibraryView } from './components/LibraryView'
 import { NewTabDialog } from './components/NewTabDialog'
+import { PedalDialog } from './components/PedalDialog'
 import { PlanBar } from './components/PlanBar'
 import { PlanCard } from './components/PlanCard'
 import { PracticePanel } from './components/PracticePanel'
@@ -20,6 +21,7 @@ import { TunerPanel } from './components/TunerPanel'
 import { TuningPicker } from './components/TuningPicker'
 import { isAppleTouch, preferPlayback } from './lib/audioSession'
 import { clampSpeed } from './lib/format'
+import { isControlKey, loadPedalKeys, nextSection, pedalKeyAction, type PedalKeys, savePedalKeys } from './lib/pedal'
 import { loadPrefs, MAX_VOLUME, savePrefs } from './lib/prefs'
 import { useWakeLock } from './lib/wakeLock'
 import { useEditor } from './editor/useEditor'
@@ -61,6 +63,13 @@ function isTextEntry(target: EventTarget | null): boolean {
   if (target instanceof HTMLTextAreaElement || target.isContentEditable) return true
   if (target instanceof HTMLSelectElement) return true
   return target instanceof HTMLInputElement && target.type !== 'range'
+}
+
+/** Whether keys typed here are text, which a pedal key must not take away. */
+function isTyping(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  if (target instanceof HTMLTextAreaElement || target.isContentEditable) return true
+  return target instanceof HTMLInputElement && !['range', 'checkbox', 'radio', 'button', 'file'].includes(target.type)
 }
 
 // Narrow screens, and phones held sideways, which are wide but short.
@@ -153,6 +162,8 @@ export default function App() {
   const [leaving, setLeaving] = useState<{ then: () => void } | null>(null)
   const [newTabOpen, setNewTabOpen] = useState(false)
   const [exercisesOpen, setExercisesOpen] = useState(false)
+  const [pedalOpen, setPedalOpen] = useState(false)
+  const [pedalKeys, setPedalKeys] = useState<PedalKeys>(loadPedalKeys)
   /** The passage a drill is being made from. */
   const [drillSource, setDrillSource] = useState<{ first: number; last: number; options: DrillOptions } | null>(null)
   const editorDirty = editor.state.dirty
@@ -479,6 +490,58 @@ export default function App() {
       window.removeEventListener('keyup', onKey)
     }
   }, [actions, editing, practiceBusy, ready])
+
+  // A foot pedal is a keyboard with a few keys. It works wherever the hands
+  // would be busy, and stays out of the way of typing, sliders and dialogs.
+  const pedal = useRef<(action: 'play' | 'restart' | 'next') => void>(() => {})
+  useEffect(() => {
+    pedal.current = (action) => {
+      const { phase, trainer, wait } = practice.state
+      if (action === 'play') {
+        if (wait) practice.actions.skipWaitNote()
+        else if (phase === 'starting') return
+        else if (practice.state.open) {
+          if (practice.state.kind === 'measure' && phase === 'recording') return
+          if (phase === 'recording' || trainer.running) practice.actions.stop()
+          // A song already playing is stopped, not restarted as a take.
+          else if (state.isPlaying) actions.playPause()
+          else if (practice.state.micReady) practice.actions.start()
+          // Without a microphone there is no take, but the song still plays.
+          else if (state.canPlay) actions.playPause()
+        } else if (state.canPlay) actions.playPause()
+        return
+      }
+      // A take or wait mode owns the position until it ends.
+      if (practiceBusy) return
+      if (action === 'restart') {
+        actions.restart()
+        return
+      }
+      // During a run-up the position is before the selection, which is what to move on from.
+      const section = nextSection(state.sections, actions.selection()?.last ?? state.currentBar)
+      if (!section) return
+      if (state.hasLoopRange) actions.selectBars(section.startBar, section.endBar, false)
+      else actions.jumpToBar(section.startBar)
+    }
+  })
+  const pedalsOn = ready && !editing && !tuner.state.open
+  useEffect(() => {
+    if (!pedalsOn) return
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target
+      if (isTyping(target) || document.querySelector('dialog[open]')) return
+      // A focused slider or list keeps the keys it is used with, and only those:
+      // Page Down would otherwise change the tempo as well as start the song.
+      if (target instanceof HTMLElement && target.matches('input[type="range"], select') && isControlKey(event.code)) return
+      const action = pedalKeyAction(event, pedalKeys)
+      if (!action) return
+      // Held, the key must not scroll the tab either.
+      event.preventDefault()
+      if (!event.repeat) pedal.current(action)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [pedalKeys, pedalsOn])
 
   // On an iPhone the song would follow the silent switch unless the page
   // asks to be treated as media playback, which needs a tap or key press.
@@ -950,6 +1013,7 @@ export default function App() {
           onToggleTuner={toggleTuner}
           editorOpen={editor.state.active}
           onToggleEditor={toggleEditor}
+          onPedal={() => setPedalOpen(true)}
           picking={picking}
         />
       )}
@@ -990,6 +1054,17 @@ export default function App() {
               return 'The exercise could not be saved in this browser.'
             }
           }}
+        />
+      )}
+
+      {pedalOpen && (
+        <PedalDialog
+          keys={pedalKeys}
+          onChange={(keys) => {
+            setPedalKeys(keys)
+            savePedalKeys(keys)
+          }}
+          onClose={() => setPedalOpen(false)}
         />
       )}
 

@@ -1002,6 +1002,45 @@ select {
   white-space: nowrap;
 }
 
+.pedal-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pedal-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.pedal-row > span:first-child {
+  display: flex;
+  flex-direction: column;
+}
+
+.pedal-key {
+  min-width: 6.5em;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+@media (max-width: 520px) {
+  .pedal-row {
+    grid-template-columns: 1fr auto auto;
+  }
+
+  .pedal-row > span:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .pedal-key {
+    text-align: left;
+  }
+}
+
 .timing-habits {
   max-width: 360px;
 }
