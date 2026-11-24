@@ -1,6 +1,6 @@
 import * as alphaTab from '@coderline/alphatab'
 import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { TakeRecord } from '../library/types'
+import type { TakeRecord, TakeRecording } from '../library/types'
 import { isDark, onThemeChange } from '../lib/theme'
 import type { PlayerState } from '../player/usePlayer'
 import { barStartAt, leadInStart, moveAndDraw, paused, playbackRange } from '../player/seek'
@@ -27,6 +27,7 @@ import {
   type TimingLeeway,
 } from './matching'
 import { type InputDevice, listInputs, MicInput } from './micInput'
+import { encodeRecording, LEAD_MS, TAIL_MS } from './recording'
 import { downloadFile, encodeTake } from './takeFile'
 import { describeTake, inputLevel, readTakeReport, type TakeDetails } from './takeReport'
 import { tallyTiming } from './tendencies'
@@ -45,11 +46,14 @@ export interface PracticeResult {
 
 /** What a finished take adds to the song's practice history. */
 export type NewTake = Omit<TakeRecord, 'id' | 'songId' | 'at'>
+/** What was heard during it, kept so it can be listened to. */
+export type NewRecording = Omit<TakeRecording, 'takeId' | 'songId' | 'at'>
 
 export interface PracticeOptions {
   setSpeed: (speed: number) => void
   /** Called with every finished take that is worth remembering. */
-  onTake: (take: NewTake) => void
+  /** `recording` makes the take's recording, when wanted; it takes a moment, so it is left to the caller. */
+  onTake: (take: NewTake, recording: (() => NewRecording | null) | null) => void
   /** Ends a plain Play's run-up, so the playback range is the selection again. */
   releaseLeadIn: () => void
   /** Brings the playback position into view. */
@@ -249,6 +253,30 @@ interface Take {
   /** Timer for that wait. */
   tailTimer: number | null
   cleanup: () => void
+}
+
+/** What was heard during one pass, cut from the take's audio, lined up with the song. */
+function recordingOf(take: Take, pass: Pass, expected: TabNote[], heardAt: (songMs: number) => number, sampleRate: number): NewRecording | null {
+  const runUp = take.runUp.filter((note) => note.timeMs <= pass.reachedMs)
+  const first = runUp[0] ?? expected[0]
+  const last = expected.at(-1)
+  if (!first || !last) return null
+  const startMs = first.timeMs - LEAD_MS
+  const fromSec = heardAt(startMs)
+  // Not before the audio began; the song time moves on with the cut.
+  const from = Math.max(0, fromSec)
+  const to = Math.min(take.audioSamples / sampleRate, heardAt(last.timeMs + TAIL_MS))
+  if (!(to - from > 0.5)) return null
+  const wav = encodeRecording(take.audio, sampleRate, from, to)
+  return {
+    wav: wav.buffer,
+    songStartMs: startMs + (from - fromSec) * 1000,
+    // From the start of the bar of the first note heard.
+    startTick: first.tick - (first.notes[0]?.beat.playbackStart ?? 0),
+    endTick: take.range.endTick,
+    speed: take.speed,
+    trackIndex: take.trackIndex,
+  }
 }
 
 function newPass(number: number): Pass {
@@ -629,7 +657,9 @@ export function usePractice(
         })),
       }
     }
-    return { expected, results: ownResults, extraNotes, latencyMs, latencySource, estimate }
+    // Where a moment of this pass's song is in the audio heard, in seconds, the delay included.
+    const heardAt = (songMs: number) => wavSec(songMs + (shift[own] ?? 0) + latencyMs)
+    return { expected, results: ownResults, extraNotes, latencyMs, latencySource, estimate, heardAt }
   }, [])
 
   /** Ends the speed trainer, cancelling a round that is waiting to start. */
@@ -687,41 +717,44 @@ export function usePractice(
       // A take in which nothing was heard is not practice, just a run-through.
       if (summary.scored >= MIN_NOTES_TO_RECORD && summary.hit > 0) {
         const bars = scored.expected.map((note) => note.bar)
-        optionsRef.current.onTake({
-          trackIndex: take.trackIndex,
-          speed: take.speed,
-          startBar: Math.min(...bars),
-          endBar: Math.max(...bars),
-          scored: summary.scored,
-          onTime: summary.onTime,
-          early: summary.early,
-          late: summary.late,
-          missed: summary.missed,
-          accuracy: summary.accuracy,
-          bars: tallyBars(bars, scored.results),
-          trainer: trainerRef.current.running,
-          // Time spent playing; a pass left running for ages is not all practice.
-          durationMs: Math.round(Math.min(30 * 60_000, Math.max(0, (pass.endedAt ?? performance.now()) - pass.startedAt))),
-          // With a delay that may be a note out, who is early and who is late cannot be told.
-          timing:
-            scored.latencySource === 'measured' || (scored.latencySource === 'estimated' && !scored.estimate?.ambiguous)
-              ? tallyTiming(
-                  scored.expected.map((note, index) => {
-                    const single = note.notes.length === 1 ? note.notes[0] : null
-                    return {
-                      // The bar and the beat in it: a repeat is not another place.
-                      place: note.bar * 100_000 + (note.notes[0]?.beat.playbackStart ?? 0),
-                      timeMs: note.timeMs,
-                      string: single?.string ?? null,
-                      fret: single?.fret ?? null,
-                      offsetMs: scored.results[index].offsetMs,
-                    }
-                  }),
-                  scored.latencySource === 'measured',
-                  take.sitting,
-                )
-              : undefined,
-        })
+        optionsRef.current.onTake(
+          {
+            trackIndex: take.trackIndex,
+            speed: take.speed,
+            startBar: Math.min(...bars),
+            endBar: Math.max(...bars),
+            scored: summary.scored,
+            onTime: summary.onTime,
+            early: summary.early,
+            late: summary.late,
+            missed: summary.missed,
+            accuracy: summary.accuracy,
+            bars: tallyBars(bars, scored.results),
+            trainer: trainerRef.current.running,
+            // Time spent playing; a pass left running for ages is not all practice.
+            durationMs: Math.round(Math.min(30 * 60_000, Math.max(0, (pass.endedAt ?? performance.now()) - pass.startedAt))),
+            // With a delay that may be a note out, who is early and who is late cannot be told.
+            timing:
+              scored.latencySource === 'measured' || (scored.latencySource === 'estimated' && !scored.estimate?.ambiguous)
+                ? tallyTiming(
+                    scored.expected.map((note, index) => {
+                      const single = note.notes.length === 1 ? note.notes[0] : null
+                      return {
+                        // The bar and the beat in it: a repeat is not another place.
+                        place: note.bar * 100_000 + (note.notes[0]?.beat.playbackStart ?? 0),
+                        timeMs: note.timeMs,
+                        string: single?.string ?? null,
+                        fret: single?.fret ?? null,
+                        offsetMs: scored.results[index].offsetMs,
+                      }
+                    }),
+                    scored.latencySource === 'measured',
+                    take.sitting,
+                  )
+                : undefined,
+          },
+          take.kind === 'practice' ? () => recordingOf(take, pass, scored.expected, scored.heardAt, mic.sampleRate) : null,
+        )
       }
       const outcome: PassOutcome = {
         result: { summary, latencyMs: Math.round(scored.latencyMs), latencySource: scored.latencySource },

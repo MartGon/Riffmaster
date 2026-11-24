@@ -1,6 +1,9 @@
 import type { TakeRecord } from '../library/types'
+import { takeTime } from '../lib/format'
+import { Icon } from './Icon'
 import { summarizeHistory, troubleBars } from '../practice/history'
 import type { SongProgress } from '../practice/progress'
+import type { ListenState } from '../practice/useListenBack'
 import { timingAssessed, timingHabits } from '../practice/tendencies'
 
 interface Props {
@@ -9,20 +12,17 @@ interface Props {
   /** How far along the track is, worked out from the same takes. */
   progress: SongProgress | null
   disabled: boolean
+  /** Takes that can be listened to, and the one being listened to. */
+  recorded: Set<string>
+  listening: ListenState
+  onListen: (take: TakeRecord) => void
   onLoopBar: (bar: number) => void
   onClear: () => void
 }
 
 const percent = (share: number) => `${Math.round(share * 100)}%`
 
-function when(timestamp: number): string {
-  return new Date(timestamp).toLocaleString(undefined, {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
+const when = takeTime
 
 const describe = (take: TakeRecord) =>
   `${when(take.at)}: ${percent(take.accuracy)} of ${take.scored} notes at ${percent(take.speed)} tempo`
@@ -79,7 +79,7 @@ function Trend({ takes }: { takes: TakeRecord[] }) {
 }
 
 /** Practice history of one track: the trend, the latest takes and the bars that keep going wrong. */
-export function HistoryView({ takes, progress, disabled, onLoopBar, onClear }: Props) {
+export function HistoryView({ takes, progress, disabled, recorded, listening, onListen, onLoopBar, onClear }: Props) {
   if (takes.length === 0) {
     return (
       <div className="history">
@@ -125,6 +125,9 @@ export function HistoryView({ takes, progress, disabled, onLoopBar, onClear }: P
             <th scope="col">Tempo</th>
             <th scope="col">Bars</th>
             <th scope="col">Played</th>
+            <th scope="col">
+              <span className="visually-hidden">Listen</span>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -137,6 +140,20 @@ export function HistoryView({ takes, progress, disabled, onLoopBar, onClear }: P
               </td>
               <td>
                 {percent(take.accuracy)} of {take.scored}
+              </td>
+              <td>
+                {recorded.has(take.id) && (
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={`Listen to the take of ${when(take.at)}`}
+                    title="Listen back, with the tab"
+                    disabled={disabled || listening.takeId === take.id}
+                    onClick={() => onListen(take)}
+                  >
+                    <Icon name="play" />
+                  </button>
+                )}
               </td>
             </tr>
           ))}

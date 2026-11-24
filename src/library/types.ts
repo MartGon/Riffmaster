@@ -91,6 +91,26 @@ export interface TimingTally {
 }
 
 /**
+ * What was heard during a take, kept on this device only, so the take can be
+ * listened to under the tab. Its first sample sounds with the song at
+ * `songStartMs`: the delay of the microphone is already taken out.
+ */
+export interface TakeRecording {
+  takeId: string
+  songId: string
+  at: number
+  /** A 16-bit mono WAV file. */
+  wav: ArrayBuffer
+  /** Song time of the first sample, in ms at the take's speed, as the player counts it. */
+  songStartMs: number
+  /** The ticks to play under it, from the first note heard to the end of the take. */
+  startTick: number
+  endTick: number
+  speed: number
+  trackIndex: number
+}
+
+/**
  * One finished practice take, kept so progress can be followed over time.
  * Takes are only ever added or removed whole, which keeps merging two
  * devices' histories simple.

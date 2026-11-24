@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import type { SongProgress } from '../practice/progress'
+import { takeTime as when } from '../lib/format'
+import type { ListenMix, ListenState } from '../practice/useListenBack'
 import type { TakeRecord } from '../library/types'
 import { TIMING_LEEWAYS, type TimingLeeway } from '../practice/matching'
 import { noteName } from '../tuner/tuning'
@@ -104,13 +106,20 @@ interface Props {
   /** Practice takes of the shown track, oldest first. */
   takes: TakeRecord[]
   progress: SongProgress | null
+  /** Takes that can be listened to, and the one being listened to. */
+  recorded: Set<string>
+  listening: ListenState
+  onListen: (take: TakeRecord) => void
+  onStopListening: () => void
+  onMix: (mix: ListenMix) => void
   onLoopBar: (bar: number) => void
   onClearHistory: () => void
   /** Makes a practice piece from the selected bars. */
   onDrill: () => void
 }
 
-export function PracticePanel({ state, actions, speed, takes, progress, onLoopBar, onClearHistory, onDrill }: Props) {
+export function PracticePanel({ state, actions, speed, takes, progress, recorded, listening, onListen, onStopListening, onMix, onLoopBar, onClearHistory, onDrill }: Props) {
+  const heard = takes.find((take) => take.id === listening.takeId)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [report, setReport] = useState<TakeDetails | null>(null)
   const following = state.phase === 'following'
@@ -393,8 +402,40 @@ export function PracticePanel({ state, actions, speed, takes, progress, onLoopBa
         />
       )}
       {report && <TakeReportDialog details={report} onSave={actions.saveTake} onClose={() => setReport(null)} />}
+      {listening.takeId && (
+        <div className="listen-bar" role="group" aria-label="Listening back">
+          <span className="listen-what">{listening.loading ? 'Getting the take ready…' : heard ? `Your take of ${when(heard.at)}` : 'Your take'}</span>
+          <div className="listen-mix" role="radiogroup" aria-label="What to hear">
+            {(
+              [
+                ['take', 'Your take'],
+                ['both', 'Both'],
+                ['original', 'Original'],
+              ] as const
+            ).map(([mix, label]) => (
+              <button key={mix} type="button" className="toggle" role="radio" aria-checked={listening.mix === mix} onClick={() => onMix(mix)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <button type="button" className="toggle" onClick={onStopListening}>
+            <Icon name="stop" />
+            Stop
+          </button>
+        </div>
+      )}
+      {listening.error && <p className="practice-message">{listening.error}</p>}
       {historyOpen && (
-        <HistoryView takes={takes} progress={progress} disabled={busy} onLoopBar={onLoopBar} onClear={onClearHistory} />
+        <HistoryView
+          takes={takes}
+          progress={progress}
+          disabled={busy}
+          recorded={recorded}
+          listening={listening}
+          onListen={onListen}
+          onLoopBar={onLoopBar}
+          onClear={onClearHistory}
+        />
       )}
     </section>
   )

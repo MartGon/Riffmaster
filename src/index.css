@@ -636,6 +636,35 @@ button:disabled {
   padding-right: 8px;
 }
 
+/* Listening back to a take: what is playing, what is heard, and Stop. */
+.listen-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  /* A row of its own. */
+  flex: 1 1 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+}
+
+.listen-what {
+  flex: 1 1 140px;
+  font-weight: 600;
+}
+
+.listen-mix {
+  display: flex;
+  gap: 4px;
+}
+
+.listen-mix .toggle[aria-checked='true'] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
 /* The lists, as a row of buttons that wraps. */
 .list-chips {
   display: flex;

@@ -22,3 +22,13 @@ export function clampSpeed(speed: number): number {
 export function effectiveTempo(baseTempo: number, speed: number): number {
   return Math.round(baseTempo * speed)
 }
+
+/** When a take was played, as in "24 Nov, 14:05". */
+export function takeTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}

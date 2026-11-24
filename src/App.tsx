@@ -8,6 +8,7 @@ import { GuitarSetupPicker } from './components/GuitarSetupPicker'
 import { SongListsDialog } from './components/SongListsDialog'
 import { addToList, allLists, cleanListName, deleteList, type ListChanges, moveInList, removeFromList, renameList, songsInList } from './library/lists'
 import { practiceStreak, progressBySong, songProgress, weekMinutes } from './practice/progress'
+import { useListenBack } from './practice/useListenBack'
 import { ChoiceDialog, FormDialog } from './components/FormDialog'
 import { Fretboard } from './components/Fretboard'
 import { Icon } from './components/Icon'
@@ -36,6 +37,8 @@ import { useFingering } from './fingering/useFingering'
 import {
   addSong,
   addTake,
+  recordedTakes,
+  saveRecording,
   saveSongLists,
   clearTakes,
   hasOriginal,
@@ -51,7 +54,7 @@ import { useLibrary } from './library/useLibrary'
 import type { PlanStep } from './plan/plan'
 import { usePlan } from './plan/usePlan'
 import { SIDEWAYS, usePlayer } from './player/usePlayer'
-import { type NewTake, usePractice } from './practice/usePractice'
+import { type NewRecording, type NewTake, usePractice } from './practice/usePractice'
 import { startSync } from './sync/sync'
 import { useTuner } from './tuner/useTuner'
 
@@ -125,25 +128,50 @@ export default function App() {
   useEffect(() => {
     songIdRef.current = songId
   })
-  const onTake = useCallback((take: NewTake) => {
+  /** Takes of the open song that can be listened to. */
+  const [recorded, setRecorded] = useState<Set<string>>(() => new Set())
+  const onTake = useCallback((take: NewTake, recording: (() => NewRecording | null) | null) => {
     const id = songIdRef.current
     if (!id) return
     void addTake({ ...take, songId: id, at: Date.now() }).then(
       (record) => {
         if (songIdRef.current === id) setTakes((list) => [...list, record])
         void refreshPlan()
+        if (!recording) return
+        // Made a moment later, so the end of a pass is not held up; kept on this device only.
+        window.setTimeout(() => {
+          const made = recording()
+          if (!made) return
+          void saveRecording({ ...made, takeId: record.id, songId: id, at: record.at }).then(
+            () => songIdRef.current === id && setRecorded((ids) => new Set(ids).add(record.id)),
+            // Without room for it the take is still kept.
+            () => {},
+          )
+        }, 0)
       },
       // Without storage the take is simply not remembered.
       () => {},
     )
   }, [refreshPlan])
+  useEffect(() => {
+    let current = true
+    if (songId) void recordedTakes(songId).then((ids) => current && setRecorded(ids), () => {})
+    return () => {
+      current = false
+    }
+  }, [songId, takes])
   // Sync is optional and runs in the background; changes from other devices refresh the list.
   const refreshLibrary = library.refresh
   useEffect(() => startSync(() => void refreshLibrary()), [refreshLibrary])
+  /** Ends listening back at once: a take must find the player as the player left it. */
+  const stopListeningNow = useRef<() => void>(() => {})
   const practice = usePractice(api, state, marksRef, {
     setSpeed: actions.setSpeed,
     onTake,
-    releaseLeadIn: actions.releaseLeadIn,
+    releaseLeadIn: () => {
+      stopListeningNow.current()
+      actions.releaseLeadIn()
+    },
     reveal: actions.revealPosition,
     holdRange: actions.holdRange,
   })
@@ -441,11 +469,22 @@ export default function App() {
   }, [flushSave])
 
   // The speed trainer keeps hold of playback between its rounds as well.
+  const listen = useListenBack(api, { masterVolume: state.masterVolume })
+  useEffect(() => {
+    stopListeningNow.current = listen.actions.stop
+  })
   const practiceBusy =
     practice.state.phase === 'recording' ||
     practice.state.phase === 'following' ||
     practice.state.phase === 'starting' ||
     practice.state.trainer.running
+  // Practice, editing, another song or track, or closing the panel take the player over.
+  const listeningTo = listen.state.takeId
+  const stopListening = listen.actions.stop
+  useEffect(() => {
+    if (listeningTo && (practiceBusy || !ready || editor.state.active || !practice.state.open)) stopListening()
+  }, [editor.state.active, listeningTo, practice.state.open, practiceBusy, ready, stopListening])
+  useEffect(() => stopListening, [songId, state.activeTrack, stopListening])
 
   // A practice take or the speed trainer under way (measuring the delay needs the panel).
   const practising = practiceBusy && (practice.state.kind === 'practice' || practice.state.trainer.running)
@@ -1139,12 +1178,18 @@ export default function App() {
           speed={state.speed}
           takes={trackTakes}
           progress={trackProgress}
+          recorded={recorded}
+          listening={listen.state}
+          onListen={listen.actions.listen}
+          onStopListening={listen.actions.stop}
+          onMix={listen.actions.setMix}
           onDrill={startDrill}
           onLoopBar={(bar) => actions.selectBars(bar, bar, true)}
           onClearHistory={() => {
             const id = songId
             const trackIndex = state.activeTrack
             if (!id || !window.confirm('Clear the practice history of this track?')) return
+            listen.actions.stop()
             void clearTakes(id, trackIndex).then(
               () => setTakes((list) => list.filter((take) => take.trackIndex !== trackIndex)),
               () => setNotice('The practice history could not be cleared.'),

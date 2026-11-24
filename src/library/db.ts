@@ -1,7 +1,7 @@
 import { randomId, sha256 } from '../lib/ids'
 import { type DBSchema, type IDBPDatabase, openDB } from 'idb'
 import { sameLists } from './lists'
-import { defaultSongSettings, type Song, type SongSettings, type TakeRecord } from './types'
+import { defaultSongSettings, type Song, type SongSettings, type TakeRecord, type TakeRecording } from './types'
 
 /**
  * A change made on this device that sync has not sent yet. Keyed by
@@ -22,6 +22,9 @@ export interface LibrarySchema extends DBSchema {
   outbox: { key: string; value: Pending }
   /** What sync remembers between runs: who is signed in, how far it has read, which files it sent. */
   syncMeta: { key: string; value: unknown }
+  /** Recordings of takes, on this device only; never synced. What they are, and their sound apart, so the size can be kept down without reading the sound. */
+  recordings: { key: string; value: RecordingInfo; indexes: { songId: string; at: number } }
+  recordingAudio: { key: string; value: ArrayBuffer }
 }
 
 /** The outbox store, in whichever transaction is writing to it. */
@@ -68,7 +71,7 @@ export function setBlockedHandler(handler: (() => void) | null): void {
 }
 
 export function db(): Promise<IDBPDatabase<LibrarySchema>> {
-  dbPromise ??= openDB<LibrarySchema>('riffmaster', 3, {
+  dbPromise ??= openDB<LibrarySchema>('riffmaster', 4, {
     async upgrade(database, oldVersion, _newVersion, transaction) {
       if (oldVersion < 1) {
         const songs = database.createObjectStore('songs', { keyPath: 'id' })
@@ -85,6 +88,12 @@ export function db(): Promise<IDBPDatabase<LibrarySchema>> {
         database.createObjectStore('syncMeta')
         for (const song of await transaction.objectStore('songs').getAll()) await markSong(outbox, song.id)
         for (const take of await transaction.objectStore('takes').getAll()) await markTake(outbox, take)
+      }
+      if (oldVersion < 4) {
+        const recordings = database.createObjectStore('recordings', { keyPath: 'takeId' })
+        recordings.createIndex('songId', 'songId')
+        recordings.createIndex('at', 'at')
+        database.createObjectStore('recordingAudio')
       }
     },
     blocked() {
@@ -316,9 +325,13 @@ export async function restoreOriginal(
 /** Removes the file and the practice history, and leaves a deletion marker on the song record. */
 export async function deleteSong(id: string, now = Date.now()): Promise<void> {
   const database = await db()
-  const tx = database.transaction(['songs', 'files', 'takes', 'outbox'], 'readwrite')
+  const tx = database.transaction(['songs', 'files', 'takes', 'outbox', 'recordings', 'recordingAudio'], 'readwrite')
   const outbox = tx.objectStore('outbox')
   const song = await tx.objectStore('songs').get(id)
+  for (const key of await tx.objectStore('recordings').index('songId').getAllKeys(id)) {
+    await tx.objectStore('recordings').delete(key)
+    await tx.objectStore('recordingAudio').delete(key)
+  }
   if (song) {
     // A deleted song leaves its lists, so it cannot bring one back later.
     const { lists: _lists, ...rest } = song
@@ -333,6 +346,79 @@ export async function deleteSong(id: string, now = Date.now()): Promise<void> {
   }
   await tx.done
   changed()
+}
+
+/** A recording without its sound, and how big the sound is. */
+export type RecordingInfo = Omit<TakeRecording, 'wav'> & { bytes: number }
+
+/** Most recordings kept, and most room they take; the oldest go first. A minute is about 2.9 MB. */
+export const MAX_RECORDINGS = 40
+export const MAX_RECORDING_BYTES = 250 * 1024 * 1024
+
+const isQuotaError = (error: unknown) => error instanceof DOMException && error.name === 'QuotaExceededError'
+
+/** Lets the oldest recordings go until `bytes` more fit, or `keep` are left. */
+async function makeRoom(bytes: number, keep = MAX_RECORDINGS - 1): Promise<void> {
+  const tx = (await db()).transaction(['recordings', 'recordingAudio'], 'readwrite')
+  const all = await tx.objectStore('recordings').index('at').getAll()
+  let total = all.reduce((sum, info) => sum + info.bytes, 0)
+  for (const [index, info] of all.entries()) {
+    if (all.length - index <= keep && total + bytes <= MAX_RECORDING_BYTES) break
+    await tx.objectStore('recordings').delete(info.takeId)
+    await tx.objectStore('recordingAudio').delete(info.takeId)
+    total -= info.bytes
+  }
+  await tx.done
+}
+
+async function putRecording(recording: TakeRecording): Promise<void> {
+  const { wav, ...info } = recording
+  const tx = (await db()).transaction(['recordings', 'recordingAudio'], 'readwrite')
+  await tx.objectStore('recordingAudio').put(wav, recording.takeId)
+  await tx.objectStore('recordings').put({ ...info, bytes: wav.byteLength })
+  await tx.done
+}
+
+/**
+ * Keeps what was heard during a take, making room first by letting the
+ * oldest recordings go. When the browser has no room left, more go, once.
+ */
+export async function saveRecording(recording: TakeRecording): Promise<void> {
+  if (recording.wav.byteLength > MAX_RECORDING_BYTES) return
+  await makeRoom(recording.wav.byteLength)
+  try {
+    await putRecording(recording)
+  } catch (error) {
+    if (!isQuotaError(error)) throw error
+    const count = (await (await db()).getAllKeys('recordings')).length
+    await makeRoom(recording.wav.byteLength, Math.floor(count / 2))
+    await putRecording(recording)
+  }
+}
+
+export async function getRecording(takeId: string): Promise<TakeRecording | undefined> {
+  const tx = (await db()).transaction(['recordings', 'recordingAudio'])
+  const info = await tx.objectStore('recordings').get(takeId)
+  const wav = await tx.objectStore('recordingAudio').get(takeId)
+  await tx.done
+  if (!info || !wav) return undefined
+  const { bytes: _bytes, ...rest } = info
+  return { ...rest, wav }
+}
+
+/** Takes of a song that can be listened to. Recordings of takes since removed, here or by sync, go. */
+export async function recordedTakes(songId: string): Promise<Set<string>> {
+  const tx = (await db()).transaction(['recordings', 'recordingAudio', 'takes'], 'readwrite')
+  const kept = new Set<string>()
+  for (const key of await tx.objectStore('recordings').index('songId').getAllKeys(songId)) {
+    if (await tx.objectStore('takes').getKey(key)) kept.add(key)
+    else {
+      await tx.objectStore('recordings').delete(key)
+      await tx.objectStore('recordingAudio').delete(key)
+    }
+  }
+  await tx.done
+  return kept
 }
 
 /** Records a finished practice take. */

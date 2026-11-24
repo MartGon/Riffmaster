@@ -4,6 +4,10 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   addSong,
   addTake,
+  getRecording,
+  MAX_RECORDINGS,
+  recordedTakes,
+  saveRecording,
   saveSongLists,
   clearTakes,
   deleteSong,
@@ -131,6 +135,27 @@ describe('practice history', () => {
     const back = await addSong(song('A'), 3000)
     expect(back.id).toBe(a.id)
     expect(back.lists).toBeUndefined()
+  })
+
+  it('keeps recordings of takes, the newest within limits', async () => {
+    const a = await addSong(song('A'), 1000)
+    const ids: string[] = []
+    for (let i = 0; i < MAX_RECORDINGS + 2; i++) {
+      const kept = await addTake(take(a.id, 2000 + i))
+      ids.push(kept.id)
+      await saveRecording({ takeId: kept.id, songId: a.id, at: 2000 + i, wav: new ArrayBuffer(8), songStartMs: -500, startTick: 0, endTick: 3840, speed: 1, trackIndex: 0 })
+    }
+    const recorded = await recordedTakes(a.id)
+    expect(recorded.size).toBe(MAX_RECORDINGS)
+    expect(recorded.has(ids[0])).toBe(false)
+    expect(recorded.has(ids.at(-1)!)).toBe(true)
+    const back = await getRecording(ids.at(-1)!)
+    expect(back).toMatchObject({ songStartMs: -500, speed: 1 })
+    expect(back?.wav.byteLength).toBe(8)
+    // A cleared history takes its recordings with it.
+    await clearTakes(a.id, 4)
+    expect((await recordedTakes(a.id)).size).toBe(0)
+    expect(await getRecording(ids.at(-1)!)).toBeUndefined()
   })
 
   it('drops the history with the song', async () => {
