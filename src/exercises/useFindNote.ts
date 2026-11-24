@@ -124,6 +124,8 @@ export function useFindNote() {
       mic = await openInput()
     } catch (error) {
       if (mine !== run.current) return
+      // Over: leaving for the settings to allow the microphone must not replace this message.
+      active.current = false
       const blocked = error instanceof DOMException && (error.name === 'NotAllowedError' || error.name === 'SecurityError')
       setView({
         ...IDLE,
@@ -174,13 +176,15 @@ export function useFindNote() {
     const finish = () => {
       const summary = game.summary()
       const best = mergeBest(storeRef.current.best, loadFindNote().best)
+      // Judged against the best as it is now, which another tab may have raised meanwhile.
+      const before = best[key] ?? null
       if (summary.score > 0) best[key] = Math.max(summary.score, best[key] ?? 0)
       const next = { ...storeRef.current, best }
       storeRef.current = next
       setStore(next)
       saveFindNote(next)
       release()
-      setView((current) => ({ ...current, phase: 'done', summary, score: summary.score, target: null, last: null }))
+      setView((current) => ({ ...current, phase: 'done', summary, score: summary.score, target: null, last: null, previousBest: before }))
     }
 
     const detector = new NoteDetector(mic.sampleRate, (note: GameNote) => {

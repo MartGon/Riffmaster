@@ -40,6 +40,27 @@ export function FindNoteDialog({ onClose }: Props) {
   // Both hands are on the guitar, so nothing else keeps a phone's screen awake.
   useWakeLock(inGame)
 
+  // The button pressed goes away with its part of the dialog, so focus moves to what replaces it.
+  const part = inGame ? 'game' : view.phase === 'done' ? 'done' : 'setup'
+  const partRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (part !== 'setup') partRef.current?.focus()
+  }, [part])
+
+  // Said to a screen reader: the visible prompt is split over several lines, and changes often.
+  const announcement =
+    view.phase === 'count'
+      ? String(view.count)
+      : (view.phase === 'asking' || view.phase === 'answered') && view.target
+        ? view.last
+          ? view.last.found
+            ? `Right, fret ${view.target.fret}. ${view.last.points} points.`
+            : `Time's up. It was fret ${view.target.fret}.`
+          : view.heardWrong !== null
+            ? `Heard ${noteName(view.heardWrong)}. Try again.`
+            : `${stringLabel(open, view.target.string)}, ${noteLabel(view.target.midi)}, ${zoneLabel(view.target, settings.neck)}`
+        : ''
+
   return (
     <dialog
       ref={dialog}
@@ -123,7 +144,10 @@ export function FindNoteDialog({ onClose }: Props) {
       )}
 
       {inGame && (
-        <div className="find-note-game">
+        <div className="find-note-game" ref={partRef} tabIndex={-1}>
+          <p className="visually-hidden" role="status">
+            {announcement}
+          </p>
           <div className="find-note-top">
             <span>
               Note {Math.min(view.index + 1, view.total)} of {view.total}
@@ -141,7 +165,7 @@ export function FindNoteDialog({ onClose }: Props) {
               <span className="find-note-string">{stringLabel(open, view.target.string)}</span>
               <strong className="find-note-name">{noteLabel(view.target.midi)}</strong>
               <span className="find-note-zone">{zoneLabel(view.target, settings.neck)}</span>
-              <p className="find-note-status" role="status">
+              <p className="find-note-status" aria-hidden="true">
                 {view.last
                   ? view.last.found
                     ? `+${view.last.points} · ${seconds(view.last.seconds ?? 0)} · fret ${view.target.fret}`
@@ -161,7 +185,7 @@ export function FindNoteDialog({ onClose }: Props) {
       )}
 
       {view.phase === 'done' && summary && (
-        <div className="find-note-results">
+        <div className="find-note-results" ref={partRef} tabIndex={-1}>
           <div className="find-note-grade" aria-label={`Grade ${summary.grade}`}>
             {summary.grade}
           </div>

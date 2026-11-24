@@ -41,6 +41,9 @@ export async function listInputs(): Promise<InputDevice[]> {
     }))
 }
 
+/** Setting the input up can hang in some browsers; past this it is given up, so the microphone is let go. */
+const SETUP_MS = 8000
+
 export interface MicBlock {
   samples: Float32Array
   /** Position of the block's first sample, in samples since the input was opened. */
@@ -109,27 +112,45 @@ export class MicInput {
       recordingEnded()
       throw error
     }
+    let context: AudioContext | null = null
+    let timer: ReturnType<typeof setTimeout> | undefined
     try {
-      const context = new AudioContext({ latencyHint: 'interactive' })
-      const moduleUrl = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }))
-      try {
-        await context.audioWorklet.addModule(moduleUrl)
-      } finally {
-        URL.revokeObjectURL(moduleUrl)
+      const audio = new AudioContext({ latencyHint: 'interactive' })
+      context = audio
+      const setUp = async () => {
+        const moduleUrl = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }))
+        try {
+          await audio.audioWorklet.addModule(moduleUrl)
+        } finally {
+          URL.revokeObjectURL(moduleUrl)
+        }
+        const node = new AudioWorkletNode(audio, 'riffmaster-capture', {
+          numberOfInputs: 1,
+          numberOfOutputs: 0,
+          channelCount: 1,
+          channelCountMode: 'explicit',
+        })
+        audio.createMediaStreamSource(stream).connect(node)
+        if (audio.state === 'suspended') await audio.resume()
+        return node
       }
-      const node = new AudioWorkletNode(context, 'riffmaster-capture', {
-        numberOfInputs: 1,
-        numberOfOutputs: 0,
-        channelCount: 1,
-        channelCountMode: 'explicit',
-      })
-      context.createMediaStreamSource(stream).connect(node)
-      if (context.state === 'suspended') await context.resume()
-      return new MicInput(context, stream, node)
+      const settingUp = setUp()
+      // Finishing after it was given up, it has nothing left to do: the context is closed below.
+      settingUp.catch(() => {})
+      const node = await Promise.race([
+        settingUp,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('The audio input took too long to start.')), SETUP_MS)
+        }),
+      ])
+      return new MicInput(audio, stream, node)
     } catch (error) {
       for (const track of stream.getTracks()) track.stop()
+      if (context) void context.close().catch(() => {})
       recordingEnded()
       throw error
+    } finally {
+      clearTimeout(timer)
     }
   }
 
