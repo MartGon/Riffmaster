@@ -64,6 +64,7 @@ check('the list is in the order the songs were added', JSON.stringify(await orde
 await page.click(`button[aria-label="Move ${titles[1]} up"]`)
 await page.waitForTimeout(400)
 check('a song moves up', JSON.stringify(await order()) === JSON.stringify([titles[2], titles[1], titles[0]]), (await order()).join(' | '))
+check('the keyboard stays on the button', await page.evaluate((title) => document.activeElement?.getAttribute('aria-label') === `Move ${title} up`, titles[1]), await page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.tagName))
 await page.screenshot({ path: `${out}lists.png`, clip: { x: 0, y: 50, width: 1280, height: 420 } })
 
 // Kept with the songs.
@@ -105,7 +106,21 @@ await page.waitForTimeout(500)
 check('the list is renamed, keeping its order', (await page.$('.list-chips button:has-text("Friday gig")')) !== null && JSON.stringify(await order()) === JSON.stringify([titles[2], titles[1], titles[0]]))
 await page.click('.list-head button:has-text("Delete list")')
 await page.waitForTimeout(500)
-check('deleting the list keeps the songs', (await page.$('.list-chips')) === null && (await order()).length === 3)
+// A list with one song, taken off it and put back from the same dialog.
+await page.click(`button[aria-label="Lists for ${titles[0]}"]`)
+await page.waitForSelector('dialog[open]')
+await page.fill('dialog[open] .new-list input', 'Solo')
+await page.click('dialog[open] .new-list button')
+await page.waitForTimeout(400)
+const added = await page.inputValue('dialog[open] .new-list input')
+await page.uncheck('dialog[open] label:has-text("Solo") input')
+await page.waitForTimeout(400)
+const stays = (await page.$('dialog[open] label:has-text("Solo") input')) !== null
+await page.check('dialog[open] label:has-text("Solo") input')
+await page.waitForTimeout(400)
+await page.click('dialog[open] button:has-text("Done")')
+check('an emptied list stays in the dialog, to tick again', added === '' && stays && (await page.$('.list-chips button:has-text("Solo")')) !== null, `name left "${added}", box stays ${stays}`)
+check('deleting the list keeps the songs', (await page.$('.list-chips button:has-text("Friday gig")')) === null && (await order()).length === 3)
 check('no errors', errors.length === 0, errors.slice(0, 3).join(' | '))
 await browser.close()
 const failed = results.filter((ok) => !ok).length

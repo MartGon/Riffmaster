@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { type ReactNode, useEffect, useRef } from 'react'
 import { allLists, songsInList } from '../library/lists'
 import type { SongProgress } from '../practice/progress'
 import type { Song } from '../library/types'
@@ -95,6 +95,18 @@ export function LibraryView({
   onDeleteList,
 }: Props) {
   const practised = practiceLine(streak, weekMinutes)
+  const rows = useRef<HTMLUListElement>(null)
+  /** The move button last pressed, found again once the move is saved: saving disables it, and the keyboard would be lost. */
+  const moved = useRef<{ id: string; step: -1 | 1 } | null>(null)
+  useEffect(() => {
+    const last = moved.current
+    if (busy || !last || !rows.current) return
+    moved.current = null
+    const button = (step: number) => rows.current?.querySelector<HTMLButtonElement>(`[data-move="${CSS.escape(`${last.id}:${step}`)}"]`)
+    const again = button(last.step)
+    // At the end of the list the other way is the one left.
+    ;(again && !again.disabled ? again : button(-last.step))?.focus()
+  }, [busy, songs])
   if (songs === null) return <div className="library" />
   const lists = allLists(songs)
   // A list emptied here or on another device is gone.
@@ -186,7 +198,7 @@ export function LibraryView({
           </button>
         </div>
       )}
-      <ul className="songs" aria-label={list ?? 'All tabs'}>
+      <ul ref={rows} className="songs" aria-label={list ?? 'All tabs'}>
         {shown.map((song, index) => (
           <li key={song.id} className="song-row">
             <button type="button" className="song-open" onClick={() => onOpen(song)}>
@@ -214,8 +226,12 @@ export function LibraryView({
                   className="icon-button"
                   aria-label={`Move ${song.title} up`}
                   title="Earlier in the list"
+                  data-move={`${song.id}:-1`}
                   disabled={busy || index === 0}
-                  onClick={() => onMove(list, song, -1)}
+                  onClick={() => {
+                    moved.current = { id: song.id, step: -1 }
+                    onMove(list, song, -1)
+                  }}
                 >
                   <Icon name="up" />
                 </button>
@@ -224,8 +240,12 @@ export function LibraryView({
                   className="icon-button"
                   aria-label={`Move ${song.title} down`}
                   title="Later in the list"
+                  data-move={`${song.id}:1`}
                   disabled={busy || index === shown.length - 1}
-                  onClick={() => onMove(list, song, 1)}
+                  onClick={() => {
+                    moved.current = { id: song.id, step: 1 }
+                    onMove(list, song, 1)
+                  }}
                 >
                   <Icon name="down" />
                 </button>

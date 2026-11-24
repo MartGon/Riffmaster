@@ -738,9 +738,15 @@ button:disabled {
 
 /* On a phone the title needs the room: just "2/5". */
 @media (max-width: 480px) {
+  /* Still read out: "2/5" is not. */
   .playlist-name,
   .playlist-long {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   .playlist-short {

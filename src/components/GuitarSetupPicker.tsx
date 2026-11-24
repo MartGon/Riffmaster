@@ -1,5 +1,5 @@
-import { useId } from 'react'
-import { type GuitarSetup, MAX_CAPO, MAX_STRING_SHIFT } from '../player/guitarSetup'
+import { useId, useRef } from 'react'
+import { cleanSetup, type GuitarSetup, MAX_CAPO, MAX_STRING_SHIFT } from '../player/guitarSetup'
 import type { TrackInfo } from '../player/usePlayer'
 import { pitchClassName } from '../tuner/tuning'
 
@@ -23,12 +23,8 @@ export function GuitarSetupPicker({ track, pitch, setup, onChange, disabled = fa
   const id = useId()
   const strings = track.writtenTuning
   const shifts = setup?.strings ?? strings.map(() => 0)
-  const change = (next: GuitarSetup) => {
-    const clean: GuitarSetup = {}
-    if (next.capo !== undefined) clean.capo = next.capo
-    if (next.strings?.some((value) => value !== 0)) clean.strings = next.strings
-    onChange(clean.capo === undefined && clean.strings === undefined ? null : clean)
-  }
+  const change = (next: GuitarSetup) => onChange(cleanSetup(next, strings.length))
+  const summary = useRef<HTMLElement>(null)
   const retuned = shifts.some((value) => value !== 0)
 
   return (
@@ -51,7 +47,7 @@ export function GuitarSetupPicker({ track, pitch, setup, onChange, disabled = fa
         </select>
       </label>
       <details className="string-tuning" open={retuned || undefined}>
-        <summary>{retuned ? 'Strings retuned' : 'Retune single strings'}</summary>
+        <summary ref={summary}>{retuned ? 'Strings retuned' : 'Retune single strings'}</summary>
         <div className="string-rows" role="group" aria-labelledby={`${id}-strings`}>
           <span id={`${id}-strings`} className="visually-hidden">
             Single strings
@@ -78,7 +74,11 @@ export function GuitarSetupPicker({ track, pitch, setup, onChange, disabled = fa
             </label>
           ))}
           {retuned && (
-            <button type="button" className="toggle" disabled={disabled} onClick={() => change({ ...setup, strings: undefined })}>
+            <button type="button" className="toggle" disabled={disabled} onClick={() => {
+                change({ ...setup, strings: undefined })
+                // The panel closes with the button in it; the keyboard is left on its heading.
+                summary.current?.focus()
+              }}>
               Put strings back
             </button>
           )}
