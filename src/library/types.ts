@@ -1,3 +1,5 @@
+import type { GuitarSetups } from '../player/guitarSetup'
+
 /** Playback choices remembered for each song. */
 export interface SongSettings {
   /** Playback speed factor, 1 being the written tempo. */
@@ -14,6 +16,11 @@ export interface SongSettings {
    * tab itself is unchanged. Missing in older records, meaning 0.
    */
   pitch?: number
+  /**
+   * The player's capo and strings tuned on their own, by track index. The tab
+   * is shown in frets for that guitar; the sound is unchanged. Missing when none.
+   */
+  setups?: GuitarSetups
 }
 
 export const defaultSongSettings: SongSettings = {

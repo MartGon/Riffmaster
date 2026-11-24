@@ -4,6 +4,7 @@ import { DrillDialog } from './components/DrillDialog'
 import { EditorPanel } from './components/EditorPanel'
 import { ExerciseDialog } from './components/ExerciseDialog'
 import { FindNoteDialog } from './components/FindNoteDialog'
+import { GuitarSetupPicker } from './components/GuitarSetupPicker'
 import { ChoiceDialog } from './components/FormDialog'
 import { Fretboard } from './components/Fretboard'
 import { Icon } from './components/Icon'
@@ -281,11 +282,15 @@ export default function App() {
     (song: Song, edit = false) => guardEdits(() => void openNow(song, edit)),
     [guardEdits, openNow],
   )
+  /** Whether the tab is shown re-fretted for the player's capo or strings, which the editor must not save. */
+  const setupOn = Object.keys(state.setups).length > 0
+  const SETUP_BLOCKS_EDIT = 'The tab is shown for your capo and strings. Set them back to as written to edit it.'
   useEffect(() => {
     if (!editAfterLoad.current || !ready) return
     editAfterLoad.current = false
-    editor.actions.open()
-  }, [editor.actions, ready])
+    // Only new tabs open for editing, and they have no setup; should one have, the tab stays as shown.
+    if (!setupOn) editor.actions.open()
+  }, [editor.actions, ready, setupOn])
 
   const addFiles = useCallback(
     async (files: File[]) => {
@@ -360,11 +365,12 @@ export default function App() {
         soloTracks: [],
         volumes: {},
         pitch: state.pitch,
+        setups: state.setups,
       })
     } catch {
       setNotice('The original file could not be restored.')
     }
-  }, [actions, editor.actions, state.activeTrack, state.pitch, state.speed])
+  }, [actions, editor.actions, state.activeTrack, state.pitch, state.setups, state.speed])
 
   const settingsJson = ready
     ? JSON.stringify({
@@ -378,6 +384,7 @@ export default function App() {
         ),
         // Left out at 0, so songs saved before it existed are not rewritten.
         ...(state.pitch !== 0 && { pitch: state.pitch }),
+        ...(Object.keys(state.setups).length > 0 && { setups: state.setups }),
       } satisfies SongSettings)
     : null
   useEffect(() => {
@@ -428,6 +435,10 @@ export default function App() {
   const toggleEditor = () => {
     if (editor.state.active) {
       editor.actions.close()
+      return
+    }
+    if (setupOn) {
+      setNotice(SETUP_BLOCKS_EDIT)
       return
     }
     if (practice.state.open) practice.actions.closePanel()
@@ -840,10 +851,19 @@ export default function App() {
           )}
           {ready && (
             <TuningPicker
-              tuning={activeTrack?.tuning ?? []}
+              tuning={activeTrack?.writtenTuning ?? []}
               pitch={state.pitch}
               onChange={actions.setPitch}
               disabled={practiceBusy}
+            />
+          )}
+          {ready && activeTrack && activeTrack.writtenTuning.length > 0 && (
+            <GuitarSetupPicker
+              track={activeTrack}
+              pitch={state.pitch}
+              setup={state.setups[activeTrack.index]}
+              onChange={(setup) => actions.setGuitarSetup(activeTrack.index, setup)}
+              disabled={practiceBusy || editor.state.active}
             />
           )}
           {ready && (

@@ -66,8 +66,11 @@ export function Fretboard({ api, track, isPlaying, tick, fingerings, pitch = 0 }
 
   const trackIndex = track?.index
   const capo = track?.capo ?? 0
+  // Retuning a string moves its notes along the neck.
+  const retuned = track?.tuning.join(',')
   const frets = useMemo(() => {
     void songCount
+    void retuned
     const staff = api?.score?.tracks.find((t) => t.index === trackIndex)?.staves[0]
     let highest = 0
     for (const bar of staff?.bars ?? []) {
@@ -78,7 +81,7 @@ export function Fretboard({ api, track, isPlaying, tick, fingerings, pitch = 0 }
       }
     }
     return fretSpan(highest)
-  }, [api, trackIndex, capo, songCount])
+  }, [api, trackIndex, capo, songCount, retuned])
 
   // While the song plays alphaTab reports each beat as it sounds. While it
   // is paused nothing is reported, so the beat is looked up from the position.

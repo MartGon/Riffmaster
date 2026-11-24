@@ -7,6 +7,7 @@ import type { SongSettings } from '../library/types'
 import { snapSelectionToBars } from '../lib/loopRange'
 import { listSections, type SongSection } from '../lib/sections'
 import { barAtPoint } from './barAtPoint'
+import { type AppliedSetup, applySetup, cleanSetup, type GuitarSetup, type GuitarSetups, undoSetup, writtenOf } from './guitarSetup'
 import { barStartAt, leadInStart, moveAndDraw, playbackRange } from './seek'
 import { splitTrackName } from '../lib/trackName'
 import { isDark, onThemeChange } from '../lib/theme'
@@ -25,10 +26,16 @@ export interface TrackInfo {
   solo: boolean
   /** Volume as a factor, 1 being as written. */
   volume: number
-  /** Open-string pitches as MIDI numbers, highest string first; empty for drums. */
+  /** Open-string pitches as MIDI numbers, highest string first; empty for drums. For the player's guitar when a setup is on. */
   tuning: number[]
-  /** Fret the capo sits on, 0 for none. */
+  /** Fret the capo sits on, 0 for none. The player's, when a setup is on. */
   capo: number
+  /** The same two as written in the file. */
+  writtenTuning: number[]
+  writtenCapo: number
+  /** Notes the player's setup put on another string, and notes it cannot play at all. */
+  moved: number
+  unplayable: number
   percussion: boolean
 }
 
@@ -68,6 +75,8 @@ export interface PlayerState {
   masterVolume: number
   /** Semitones the pitched tracks are shifted by in playback and practice; the tab is unchanged. */
   pitch: number
+  /** The player's capo and retuned strings, by track index. */
+  setups: GuitarSetups
   /** Named parts of the song, as marked in the file. */
   sections: SongSection[]
   /** Bar the playback position is in, counted from 0. */
@@ -99,11 +108,17 @@ const initialState: PlayerState = {
   showNotation: false,
   masterVolume: 1,
   pitch: 0,
+  setups: {},
   sections: [],
   currentBar: 0,
 }
 
+/** What a setup changed in each track of a score, so it can be undone. */
+const appliedSetups = new WeakMap<alphaTab.model.Score, Map<number, AppliedSetup[]>>()
+
 function describeTrack(track: alphaTab.model.Track): TrackInfo {
+  const applied = appliedSetups.get(track.score)?.get(track.index)
+  const written = writtenOf(applied, track.staves[0])
   const name = track.name.trim() || `Track ${track.index + 1}`
   const { label, context } = splitTrackName(name)
   const staff = track.staves[0]
@@ -120,8 +135,31 @@ function describeTrack(track: alphaTab.model.Track): TrackInfo {
     volume: 1,
     tuning: staff && !staff.isPercussion ? [...staff.tuning] : [],
     capo: staff?.capo ?? 0,
+    writtenTuning: staff && !staff.isPercussion ? written.tuning : [],
+    writtenCapo: written.capo,
+    moved: applied?.reduce((sum, record) => sum + record.moved, 0) ?? 0,
+    unplayable: applied?.reduce((sum, record) => sum + record.unplayable, 0) ?? 0,
     percussion: staff?.isPercussion ?? false,
   }
+}
+
+/** Re-frets a track for the player's guitar, or puts it back as written. Returns the setup kept. */
+function setTrackSetup(score: alphaTab.model.Score, track: alphaTab.model.Track, setup: unknown): GuitarSetup | null {
+  let byTrack = appliedSetups.get(score)
+  const before = byTrack?.get(track.index)
+  if (before) {
+    undoSetup(before)
+    byTrack?.delete(track.index)
+  }
+  const staff = track.staves[0]
+  const clean = staff && !staff.isPercussion ? cleanSetup(setup, staff.tuning.length) : null
+  if (!clean) return null
+  if (!byTrack) {
+    byTrack = new Map()
+    appliedSetups.set(score, byTrack)
+  }
+  byTrack.set(track.index, applySetup(track, clean))
+  return clean
 }
 
 type TickLookup = NonNullable<alphaTab.AlphaTabApi['tickCache']>
@@ -565,6 +603,12 @@ export function usePlayer() {
         first = score.tracks.find(canLearnOn)?.index ?? first
       }
       const firstTrack = score.tracks.find((track) => track.index === first)
+      // Before anything is drawn, the tab is re-fretted for the player's guitar.
+      const setups: GuitarSetups = {}
+      for (const track of score.tracks) {
+        const kept = setTrackSetup(score, track, settings?.setups?.[track.index])
+        if (kept) setups[track.index] = kept
+      }
       // A selection belongs to the song it was made in. alphaTab keeps both
       // the section to play and the highlighted beats across a load, so
       // they are dropped here (see `showTrack` for the highlight).
@@ -595,6 +639,7 @@ export function usePlayer() {
         baseTempo: score.tempo,
         speed,
         pitch,
+        setups,
         isLooping: kept?.isLooping ?? false,
         hasLoopRange: false,
         isPlaying: false,
@@ -1129,6 +1174,7 @@ export function usePlayer() {
             soloTracks: pick('solo'),
             volumes,
             pitch: current.pitch,
+            // None: editing is only offered with the tab as written.
           }
           // A second edit can come before the first one's song is ready; the
           // position and selection to keep are still those from before the first.
@@ -1220,6 +1266,22 @@ export function usePlayer() {
           const next = clampPitch(pitch)
           if (api.score) applyPitch(api, api.score, next)
           setState((s) => ({ ...s, pitch: next }))
+        }),
+      /** Sets the player's capo and retuned strings for a track; null for the guitar as written. */
+      setGuitarSetup: (index: number, setup: GuitarSetup | null) =>
+        withApi((api) => {
+          const score = api.score
+          const track = score ? findTrack(api, index) : null
+          if (!score || !track) return
+          const kept = setTrackSetup(score, track, setup)
+          // The same notes, drawn with their new frets; the sound does not change.
+          if (api.tracks.includes(track)) api.render()
+          setState((s) => {
+            const setups = { ...s.setups }
+            if (kept) setups[index] = kept
+            else delete setups[index]
+            return { ...s, setups, tracks: s.tracks.map((info) => (info.index === index ? { ...info, ...describeTrack(track), muted: info.muted, solo: info.solo, volume: info.volume } : info)) }
+          })
         }),
       showTrack: (index: number) =>
         withApi((api) => {
