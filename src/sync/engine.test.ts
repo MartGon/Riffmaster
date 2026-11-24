@@ -7,12 +7,14 @@ import {
   addSong,
   addTake,
   clearTakes,
+  getRecording,
   deleteSong,
   listSongs,
   listTakes,
   openSong,
   resetConnection,
   saveEditedSong,
+  saveRecording,
   saveSongSettings,
 } from '../library/db'
 import type { Song, TakeRecord } from '../library/types'
@@ -115,6 +117,9 @@ class FakeServer {
 }
 
 /** Two browsers, each with its own library. */
+const record = (takeId: string, songId: string) =>
+  saveRecording({ takeId, songId, at: 1, wav: new ArrayBuffer(8), songStartMs: 0, startTick: 0, endTick: 960, speed: 1, trackIndex: 0 })
+
 const devices = { a: new IDBFactory(), b: new IDBFactory() }
 async function on(device: keyof typeof devices) {
   await resetConnection()
@@ -222,6 +227,50 @@ describe('sync', () => {
     await on('b')
     await syncOnce(server.remote())
     expect((await listTakes(added.id)).map((t) => t.trackIndex)).toEqual([1])
+  })
+
+  it('lets the recordings of a song deleted on another device go', async () => {
+    const added = await addSong(song('Song A'))
+    const kept = await addTake(take(added.id))
+    await syncOnce(server.remote())
+    await on('b')
+    await syncOnce(server.remote())
+    await record(kept.id, added.id)
+
+    await on('a')
+    await deleteSong(added.id)
+    await syncOnce(server.remote())
+    await on('b')
+    await syncOnce(server.remote())
+    expect(await getRecording(kept.id)).toBeUndefined()
+  })
+
+  it('moves the recordings of a merged copy with its takes', async () => {
+    const onA = await addSong(song('Song A', 'same file'))
+    const takeA = await addTake(take(onA.id, 0))
+    await record(takeA.id, onA.id)
+    await on('b')
+    const onB = await addSong(song('Song A', 'same file'))
+    const takeB = await addTake(take(onB.id, 1))
+    await record(takeB.id, onB.id)
+
+    await on('a')
+    await syncOnce(server.remote())
+    await on('b')
+    await syncOnce(server.remote())
+    await on('a')
+    await syncOnce(server.remote())
+
+    const kept = onA.id < onB.id ? onA.id : onB.id
+    for (const device of ['a', 'b'] as const) {
+      await on(device)
+      await syncOnce(server.remote())
+      const own = device === 'a' ? takeA : takeB
+      const ownSong = device === 'a' ? onA.id : onB.id
+      const id = ownSong === kept ? own.id : `${own.id}.m`
+      expect((await listTakes(kept)).some((t) => t.id === id), device).toBe(true)
+      expect((await getRecording(id))?.songId, device).toBe(kept)
+    }
   })
 
   it('makes one song of the same file added on both devices, with both histories', async () => {

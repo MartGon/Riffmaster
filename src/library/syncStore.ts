@@ -1,4 +1,4 @@
-import { db, markSong, markTake, originalKey, type Pending } from './db'
+import { db, forgetRecordings, markSong, moveRecordings, markTake, originalKey, type Pending } from './db'
 import type { Song, TakeRecord } from './types'
 import { mergeLists, sameLists } from './lists'
 
@@ -156,6 +156,8 @@ export async function applyRemoteSong(
     return false
   }
   const lastOpenedAt = local?.lastOpenedAt ?? remote.lastOpenedAt
+  // Recordings are kept on this device only, apart from the takes; they follow them once the takes are settled.
+  let after = async () => {}
 
   if (live && !local) {
     const twin = (await songs.index('hash').getAll(remote.hash)).find(
@@ -168,8 +170,10 @@ export async function applyRemoteSong(
         await songs.put({ ...twin, lists, updatedAt: Math.max(now, twin.updatedAt + 1) })
         await markSong(outbox, twin.id)
       }
+      // The copy that goes leaves its lists, as a deleted song does; the kept copy has them.
+      const { lists: _remoteLists, ...gone } = remote
       await songs.put({
-        ...remote,
+        ...gone,
         lastOpenedAt,
         deletedAt: now,
         updatedAt: Math.max(now, remote.updatedAt + 1),
@@ -180,8 +184,9 @@ export async function applyRemoteSong(
       return true
     }
     if (twin) {
+      const { lists: _twinLists, ...gone } = twin
       await songs.put({
-        ...twin,
+        ...gone,
         deletedAt: now,
         updatedAt: Math.max(now, twin.updatedAt + 1),
         mergedInto: remote.id,
@@ -190,6 +195,7 @@ export async function applyRemoteSong(
       await files.delete(twin.id)
       await files.delete(originalKey(twin.id))
       await moveTakes(takes, outbox, twin.id, remote.id)
+      after = () => moveRecordings(twin.id, remote.id, movedTakeId)
       const lists = mergeLists(remote, twin)
       const changedLists = !sameLists(lists, remote.lists)
       await songs.put({
@@ -202,6 +208,7 @@ export async function applyRemoteSong(
       if (changedLists) await markSong(outbox, remote.id)
       if (data) await files.put(data, remote.id)
       await tx.done
+      await after()
       return true
     }
   }
@@ -214,7 +221,10 @@ export async function applyRemoteSong(
     await files.delete(originalKey(remote.id))
     if (remote.mergedInto) {
       await moveTakes(takes, outbox, remote.id, remote.mergedInto)
+      const into = remote.mergedInto
+      after = () => moveRecordings(remote.id, into, movedTakeId)
     } else {
+      after = () => forgetRecordings(remote.id)
       for (const take of await takes.index('songId').getAll(remote.id)) {
         await takes.delete(take.id)
         await markTake(outbox, take)
@@ -222,6 +232,7 @@ export async function applyRemoteSong(
     }
   }
   await tx.done
+  await after()
   return true
 }
 

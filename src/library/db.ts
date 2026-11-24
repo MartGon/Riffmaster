@@ -1,6 +1,6 @@
 import { randomId, sha256 } from '../lib/ids'
 import { type DBSchema, type IDBPDatabase, openDB } from 'idb'
-import { sameLists } from './lists'
+import { type ListChanges, sameLists } from './lists'
 import { defaultSongSettings, type Song, type SongSettings, type TakeRecord, type TakeRecording } from './types'
 
 /**
@@ -211,7 +211,7 @@ export async function saveSongSettings(
 }
 
 /** Puts songs on lists or takes them off, all at once; `undefined` leaves a song on no list. */
-export async function saveSongLists(changes: Map<string, Record<string, number> | undefined>, now = Date.now()): Promise<void> {
+export async function saveSongLists(changes: ListChanges, now = Date.now()): Promise<void> {
   if (changes.size === 0) return
   const tx = (await db()).transaction(['songs', 'outbox'], 'readwrite')
   const songs = tx.objectStore('songs')
@@ -349,7 +349,7 @@ export async function deleteSong(id: string, now = Date.now()): Promise<void> {
 }
 
 /** A recording without its sound, and how big the sound is. */
-export type RecordingInfo = Omit<TakeRecording, 'wav'> & { bytes: number }
+type RecordingInfo = Omit<TakeRecording, 'wav'> & { bytes: number }
 
 /** Most recordings kept, and most room they take; the oldest go first. A minute is about 2.9 MB. */
 export const MAX_RECORDINGS = 40
@@ -404,6 +404,33 @@ export async function getRecording(takeId: string): Promise<TakeRecording | unde
   if (!info || !wav) return undefined
   const { bytes: _bytes, ...rest } = info
   return { ...rest, wav }
+}
+
+/** The recordings of a song's takes, gone with them. */
+export async function forgetRecordings(songId: string): Promise<void> {
+  const tx = (await db()).transaction(['recordings', 'recordingAudio'], 'readwrite')
+  for (const key of await tx.objectStore('recordings').index('songId').getAllKeys(songId)) {
+    await tx.objectStore('recordings').delete(key)
+    await tx.objectStore('recordingAudio').delete(key)
+  }
+  await tx.done
+}
+
+/** The recordings of a song's takes, moved with the takes to the song it was merged into. */
+export async function moveRecordings(from: string, to: string, takeId: (id: string) => string): Promise<void> {
+  const tx = (await db()).transaction(['recordings', 'recordingAudio'], 'readwrite')
+  const infos = tx.objectStore('recordings')
+  const audio = tx.objectStore('recordingAudio')
+  for (const info of await infos.index('songId').getAll(from)) {
+    const wav = await audio.get(info.takeId)
+    await infos.delete(info.takeId)
+    await audio.delete(info.takeId)
+    if (!wav) continue
+    const id = takeId(info.takeId)
+    await audio.put(wav, id)
+    await infos.put({ ...info, takeId: id, songId: to })
+  }
+  await tx.done
 }
 
 /** Takes of a song that can be listened to. Recordings of takes since removed, here or by sync, go. */
