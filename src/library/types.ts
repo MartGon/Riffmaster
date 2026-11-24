@@ -55,6 +55,8 @@ export interface Song {
    * another device: the id of the song kept instead. Its practice takes move there.
    */
   mergedInto?: string
+  /** The lists the song is on, such as "Gig set", with its place in each. Missing when none. */
+  lists?: Record<string, number>
 }
 
 /** How one bar went in a practice take. */

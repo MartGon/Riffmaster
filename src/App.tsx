@@ -5,8 +5,10 @@ import { EditorPanel } from './components/EditorPanel'
 import { ExerciseDialog } from './components/ExerciseDialog'
 import { FindNoteDialog } from './components/FindNoteDialog'
 import { GuitarSetupPicker } from './components/GuitarSetupPicker'
+import { SongListsDialog } from './components/SongListsDialog'
+import { addToList, allLists, cleanListName, deleteList, type ListChanges, moveInList, removeFromList, renameList, songsInList } from './library/lists'
 import { practiceStreak, progressBySong, songProgress, weekMinutes } from './practice/progress'
-import { ChoiceDialog } from './components/FormDialog'
+import { ChoiceDialog, FormDialog } from './components/FormDialog'
 import { Fretboard } from './components/Fretboard'
 import { Icon } from './components/Icon'
 import { LibraryView } from './components/LibraryView'
@@ -34,6 +36,7 @@ import { useFingering } from './fingering/useFingering'
 import {
   addSong,
   addTake,
+  saveSongLists,
   clearTakes,
   hasOriginal,
   listTakes,
@@ -166,6 +169,14 @@ export default function App() {
   const [newTabOpen, setNewTabOpen] = useState(false)
   const [exercisesOpen, setExercisesOpen] = useState(false)
   const [findNoteOpen, setFindNoteOpen] = useState(false)
+  /** The list the library shows; the song whose lists are being changed; the list being renamed. */
+  const [libraryList, setLibraryList] = useState<string | null>(null)
+  const [listsFor, setListsFor] = useState<string | null>(null)
+  const [renaming, setRenaming] = useState<string | null>(null)
+  /** Songs being played through in a list's order. */
+  const [playlist, setPlaylist] = useState<{ name: string; ids: string[] } | null>(null)
+  /** While lists are being saved, their buttons wait, as they work from the library as it was. */
+  const [listSaving, setListSaving] = useState(false)
   const [pedalOpen, setPedalOpen] = useState(false)
   const [pedalKeys, setPedalKeys] = useState<PedalKeys>(loadPedalKeys)
   /** The passage a drill is being made from. */
@@ -702,7 +713,34 @@ export default function App() {
       startingStep.current = false
     }
   }
-  const startPlanStep = (step: PlanStep) => guardEdits(() => void runPlanStep(step))
+  const startPlanStep = (step: PlanStep) => {
+    setPlaylist(null)
+    guardEdits(() => void runPlanStep(step))
+  }
+
+  /**
+   * Saves songs' lists and shows them. A message says when the browser could
+   * not keep them; a dialog that asks for it gets the error to show itself.
+   */
+  const changeLists = async (changes: ListChanges, own = false) => {
+    setListSaving(true)
+    try {
+      await saveSongLists(changes)
+    } catch (error) {
+      if (own) throw error
+      setNotice('The lists could not be saved in this browser.')
+    } finally {
+      await library.refresh().catch(() => {})
+      setListSaving(false)
+    }
+  }
+  // The list being played through, without songs deleted since, and where the open song is in it.
+  const playlistIds = playlist ? playlist.ids.filter((id) => library.songs?.some((song) => song.id === id && song.deletedAt === null)) : []
+  const playlistAt = songId ? playlistIds.indexOf(songId) : -1
+  const playlistSong = (step: number) => {
+    const id = playlistIds[playlistAt + step]
+    return id ? library.songs?.find((song) => song.id === id) : undefined
+  }
 
   const planStepIndex = plan.steps.findIndex((step) => step.id === planStepId)
   const planStep = planStepIndex >= 0 ? plan.steps[planStepIndex] : null
@@ -791,6 +829,44 @@ export default function App() {
             </>
           )}
         </div>
+        {inPlayer && playlist && playlistAt >= 0 && (
+          <nav className="playlist" aria-label={`Playing through ${playlist.name}`}>
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Previous song in the list"
+              disabled={!playlistSong(-1)}
+              onClick={() => {
+                const song = playlistSong(-1)
+                if (song) open(song)
+              }}
+            >
+              <Icon name="back" />
+            </button>
+            <span className="playlist-place">
+              <span className="playlist-name">{playlist.name}</span>
+              <span className="playlist-long">
+                {' '}
+                {playlistAt + 1} of {playlistIds.length}
+              </span>
+              <span className="playlist-short" aria-hidden="true">
+                {playlistAt + 1}/{playlistIds.length}
+              </span>
+            </span>
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Next song in the list"
+              disabled={!playlistSong(1)}
+              onClick={() => {
+                const song = playlistSong(1)
+                if (song) open(song)
+              }}
+            >
+              <Icon name="next" />
+            </button>
+          </nav>
+        )}
         <SyncButton />
         <ThemeToggle />
         <input
@@ -950,8 +1026,26 @@ export default function App() {
           progress={libraryProgress}
           streak={practiceSummary.streak}
           weekMinutes={practiceSummary.minutes}
-          busy={busy}
-          onOpen={(song) => open(song)}
+          busy={busy || listSaving}
+          onOpen={(song) => {
+            setPlaylist(null)
+            open(song)
+          }}
+          list={libraryList}
+          onShowList={setLibraryList}
+          onEditLists={(song) => setListsFor(song.id)}
+          onMove={(list, song, step) => void changeLists(moveInList(library.songs ?? [], list, song.id, step))}
+          onPlayList={(list) => {
+            const order = songsInList(library.songs ?? [], list)
+            if (order.length === 0) return
+            setPlaylist({ name: list, ids: order.map((song) => song.id) })
+            open(order[0])
+          }}
+          onRenameList={setRenaming}
+          onDeleteList={(list) => {
+            if (!window.confirm(`Delete the list "${list}"? Its songs stay in the library.`)) return
+            void changeLists(deleteList(library.songs ?? [], list)).then(() => setLibraryList(null))
+          }}
           onAdd={openPicker}
           onNew={() => setNewTabOpen(true)}
           onExercises={() => setExercisesOpen(true)}
@@ -1119,6 +1213,34 @@ export default function App() {
       )}
 
       {findNoteOpen && <FindNoteDialog onClose={() => setFindNoteOpen(false)} />}
+
+      {listsFor && library.songs?.some((song) => song.id === listsFor) && (
+        <SongListsDialog
+          song={library.songs.find((song) => song.id === listsFor)!}
+          lists={allLists(library.songs).map((item) => item.name)}
+          onChange={async (name, on) => {
+            const songs = library.songs ?? []
+            await changeLists(on ? addToList(songs, listsFor, name) : removeFromList(songs, listsFor, name), true)
+          }}
+          onClose={() => setListsFor(null)}
+        />
+      )}
+
+      {renaming && (
+        <FormDialog
+          title="Rename list"
+          submitLabel="Rename"
+          fields={[{ name: 'name', label: 'Name', type: 'text', required: true }]}
+          initial={{ name: renaming }}
+          onSubmit={async (values) => {
+            const name = cleanListName(values.name)
+            if (!name) return 'Give the list a name.'
+            await changeLists(renameList(library.songs ?? [], renaming, name))
+            setLibraryList(name)
+          }}
+          onClose={() => setRenaming(null)}
+        />
+      )}
 
       {pedalOpen && (
         <PedalDialog

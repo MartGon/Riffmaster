@@ -3,6 +3,7 @@ import { IDBFactory } from 'fake-indexeddb'
 import { openDB } from 'idb'
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  saveSongLists,
   addSong,
   addTake,
   clearTakes,
@@ -245,6 +246,28 @@ describe('sync', () => {
       const list = await listSongs()
       expect(list.map((s) => s.id), device).toEqual([kept])
       expect((await listTakes(kept)).map((t) => t.trackIndex).sort(), device).toEqual([0, 1])
+    }
+  })
+
+  it('keeps the lists of both copies of the same file', async () => {
+    const onA = await addSong(song('Song A', 'same file'))
+    await saveSongLists(new Map([[onA.id, { 'Gig set': 0 }]]))
+    await on('b')
+    const onB = await addSong(song('Song A', 'same file'))
+    await saveSongLists(new Map([[onB.id, { Warmup: 2 }]]))
+
+    for (let round = 0; round < 3; round++) {
+      await on('a')
+      await syncOnce(server.remote())
+      await on('b')
+      await syncOnce(server.remote())
+    }
+
+    for (const device of ['a', 'b'] as const) {
+      await on(device)
+      const list = await listSongs()
+      expect(list, device).toHaveLength(1)
+      expect(list[0].lists, device).toEqual({ 'Gig set': 0, Warmup: 2 })
     }
   })
 

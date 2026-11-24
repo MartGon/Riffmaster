@@ -1,5 +1,6 @@
 import { db, markSong, markTake, originalKey, type Pending } from './db'
 import type { Song, TakeRecord } from './types'
+import { mergeLists, sameLists } from './lists'
 
 /**
  * The library's side of sync: what is waiting to be sent, and taking in
@@ -161,7 +162,12 @@ export async function applyRemoteSong(
       (song) => song.id !== remote.id && song.deletedAt === null,
     )
     if (twin && twin.id < remote.id) {
-      // This device's copy stays; the other device will drop its own.
+      // This device's copy stays, on the lists either copy was on; the other device will drop its own.
+      const lists = mergeLists(twin, remote)
+      if (!sameLists(lists, twin.lists)) {
+        await songs.put({ ...twin, lists, updatedAt: Math.max(now, twin.updatedAt + 1) })
+        await markSong(outbox, twin.id)
+      }
       await songs.put({
         ...remote,
         lastOpenedAt,
@@ -184,7 +190,16 @@ export async function applyRemoteSong(
       await files.delete(twin.id)
       await files.delete(originalKey(twin.id))
       await moveTakes(takes, outbox, twin.id, remote.id)
-      await songs.put({ ...remote, lastOpenedAt: Math.max(lastOpenedAt, twin.lastOpenedAt) })
+      const lists = mergeLists(remote, twin)
+      const changedLists = !sameLists(lists, remote.lists)
+      await songs.put({
+        ...remote,
+        lists,
+        lastOpenedAt: Math.max(lastOpenedAt, twin.lastOpenedAt),
+        // The lists this copy brings are news to the other device.
+        updatedAt: changedLists ? Math.max(now, remote.updatedAt + 1) : remote.updatedAt,
+      })
+      if (changedLists) await markSong(outbox, remote.id)
       if (data) await files.put(data, remote.id)
       await tx.done
       return true

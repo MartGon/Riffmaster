@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { allLists, songsInList } from '../library/lists'
 import type { SongProgress } from '../practice/progress'
 import type { Song } from '../library/types'
 import { versionText } from '../lib/version'
@@ -23,6 +24,16 @@ interface Props {
   onFindNote: () => void
   /** Today's practice plan, shown above the list. */
   plan: ReactNode
+  /** The list shown, or null for the whole library. */
+  list: string | null
+  onShowList: (name: string | null) => void
+  /** Opens the lists of one song. */
+  onEditLists: (song: Song) => void
+  onMove: (list: string, song: Song, step: -1 | 1) => void
+  /** Opens the songs of a list one after another, from the first. */
+  onPlayList: (list: string) => void
+  onRenameList: (list: string) => void
+  onDeleteList: (list: string) => void
 }
 
 function formatOpened(timestamp: number): string {
@@ -62,9 +73,33 @@ function Mastery({ progress }: { progress: SongProgress }) {
   )
 }
 
-export function LibraryView({ songs, progress, streak, weekMinutes, busy, onOpen, onDelete, onAdd, onNew, onExercises, onFindNote, plan }: Props) {
+export function LibraryView({
+  songs,
+  progress,
+  streak,
+  weekMinutes,
+  busy,
+  onOpen,
+  onDelete,
+  onAdd,
+  onNew,
+  onExercises,
+  onFindNote,
+  plan,
+  list: wanted,
+  onShowList,
+  onEditLists,
+  onMove,
+  onPlayList,
+  onRenameList,
+  onDeleteList,
+}: Props) {
   const practised = practiceLine(streak, weekMinutes)
   if (songs === null) return <div className="library" />
+  const lists = allLists(songs)
+  // A list emptied here or on another device is gone.
+  const list = wanted !== null && lists.some((item) => item.name === wanted) ? wanted : null
+  const shown = list === null ? songs : songsInList(songs, list)
 
   if (songs.length === 0) {
     return (
@@ -125,8 +160,34 @@ export function LibraryView({ songs, progress, streak, weekMinutes, busy, onOpen
       </div>
       {practised && <p className="library-streak">{practised}</p>}
       {plan}
-      <ul className="songs">
-        {songs.map((song) => (
+      {lists.length > 0 && (
+        <div className="list-chips" role="group" aria-label="Lists">
+          <button type="button" className="toggle" aria-pressed={list === null} onClick={() => onShowList(null)}>
+            All <span className="list-count">{songs.length}</span>
+          </button>
+          {lists.map((item) => (
+            <button key={item.name} type="button" className="toggle" aria-pressed={list === item.name} onClick={() => onShowList(item.name)}>
+              {item.name} <span className="list-count">{item.count}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {list !== null && (
+        <div className="list-head">
+          <button type="button" className="button primary" disabled={busy} onClick={() => onPlayList(list)}>
+            <Icon name="play" />
+            Play through
+          </button>
+          <button type="button" className="button" disabled={busy} onClick={() => onRenameList(list)}>
+            Rename
+          </button>
+          <button type="button" className="button" disabled={busy} onClick={() => onDeleteList(list)}>
+            Delete list
+          </button>
+        </div>
+      )}
+      <ul className="songs" aria-label={list ?? 'All tabs'}>
+        {shown.map((song, index) => (
           <li key={song.id} className="song-row">
             <button type="button" className="song-open" onClick={() => onOpen(song)}>
               <span className={song.artist === 'Exercise' ? 'song-tile exercise' : 'song-tile'} aria-hidden="true">
@@ -145,6 +206,40 @@ export function LibraryView({ songs, progress, streak, weekMinutes, busy, onOpen
                 </span>
                 {progress.has(song.id) && <Mastery progress={progress.get(song.id)!} />}
               </span>
+            </button>
+            {list !== null && (
+              <>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={`Move ${song.title} up`}
+                  title="Earlier in the list"
+                  disabled={busy || index === 0}
+                  onClick={() => onMove(list, song, -1)}
+                >
+                  <Icon name="up" />
+                </button>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={`Move ${song.title} down`}
+                  title="Later in the list"
+                  disabled={busy || index === shown.length - 1}
+                  onClick={() => onMove(list, song, 1)}
+                >
+                  <Icon name="down" />
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={`Lists for ${song.title}`}
+              title="Lists"
+              disabled={busy}
+              onClick={() => onEditLists(song)}
+            >
+              <Icon name="list" />
             </button>
             <button
               type="button"

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   addSong,
   addTake,
+  saveSongLists,
   clearTakes,
   deleteSong,
   listSongs,
@@ -121,6 +122,15 @@ describe('practice history', () => {
     await addTake(take(a.id, 3000, { trackIndex: 5 }))
     await clearTakes(a.id, 4)
     expect((await listTakes(a.id)).map((t) => t.trackIndex)).toEqual([5])
+  })
+
+  it('takes a deleted song off its lists, so adding it again brings none back', async () => {
+    const a = await addSong(song('A'), 1000)
+    await saveSongLists(new Map([[a.id, { Gig: 0 }]]), 1500)
+    await deleteSong(a.id, 2000)
+    const back = await addSong(song('A'), 3000)
+    expect(back.id).toBe(a.id)
+    expect(back.lists).toBeUndefined()
   })
 
   it('drops the history with the song', async () => {

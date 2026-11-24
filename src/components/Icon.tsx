@@ -177,6 +177,10 @@ const paths = {
   close: <path d="M6 6l12 12M18 6L6 18" />,
   minus: <path d="M5 12h14" />,
   plus: <path d="M12 5v14M5 12h14" />,
+  list: <path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01" />,
+  up: <path d="M6 15l6-6 6 6" />,
+  down: <path d="M6 9l6 6 6-6" />,
+  next: <path d="M9.5 5.5L16 12l-6.5 6.5" />,
 } as const
 
 export type IconName = keyof typeof paths

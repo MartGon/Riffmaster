@@ -41,6 +41,7 @@ They need:
 | `findnote.mjs` | Find the note: prompts follow the played notes, a wrong note is named and costs points, time runs out, a score and best are kept. Dev server on 5173 |
 | `capo.mjs` | Capo and single strings: the tab is re-fretted for the player's guitar, notes below the capo move strings, practice listens for the same notes, the tuner and fretboard follow, editing waits, and the choice is kept. Dev server on 5173 |
 | `progress.mjs` | Progress per song: how much of a song is learned in the library and the history, the practice streak and this week's minutes, from takes written into storage. Dev server on 5173 |
+| `lists.mjs` | Lists of songs: put songs on a list, reorder them, play them through with Next and Previous, rename and delete the list; kept after a reload. Dev server on 5173 |
 | `mixer.mjs` | Master and track volumes, remembered per device and per song; the app's name |
 | `editor.mjs` | The tab editor: typing, undo, clicks, copy and paste, bars, saving and restoring, the unsaved-changes question, new tabs, phone size. `node editor.mjs song\|new\|phone\|all` |
 | `theme.mjs` | The theme switch: system, light and dark, remembered after a reload and in other tabs, the score re-coloured |

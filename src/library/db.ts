@@ -1,5 +1,6 @@
 import { randomId, sha256 } from '../lib/ids'
 import { type DBSchema, type IDBPDatabase, openDB } from 'idb'
+import { sameLists } from './lists'
 import { defaultSongSettings, type Song, type SongSettings, type TakeRecord } from './types'
 
 /**
@@ -135,6 +136,8 @@ export async function addSong(input: NewSong, now = Date.now()): Promise<Song> {
   let song: Song
   if (existing) {
     song = { ...existing, deletedAt: null, updatedAt: now, lastOpenedAt: now }
+    // Back from the bin it is on no list: those it was on may be gone or renamed since.
+    if (existing.deletedAt !== null) delete song.lists
   } else {
     song = {
       id: randomId(),
@@ -196,6 +199,26 @@ export async function saveSongSettings(
     return
   }
   await tx.done
+}
+
+/** Puts songs on lists or takes them off, all at once; `undefined` leaves a song on no list. */
+export async function saveSongLists(changes: Map<string, Record<string, number> | undefined>, now = Date.now()): Promise<void> {
+  if (changes.size === 0) return
+  const tx = (await db()).transaction(['songs', 'outbox'], 'readwrite')
+  const songs = tx.objectStore('songs')
+  let any = false
+  for (const [id, lists] of changes) {
+    const song = await songs.get(id)
+    if (!song || song.deletedAt !== null || sameLists(song.lists, lists)) continue
+    const next: Song = { ...song, updatedAt: now }
+    if (lists) next.lists = lists
+    else delete next.lists
+    await songs.put(next)
+    await markSong(tx.objectStore('outbox'), id)
+    any = true
+  }
+  await tx.done
+  if (any) changed()
 }
 
 /** Sets the tuning shift a song plays in, leaving its other settings as they are. */
@@ -297,7 +320,9 @@ export async function deleteSong(id: string, now = Date.now()): Promise<void> {
   const outbox = tx.objectStore('outbox')
   const song = await tx.objectStore('songs').get(id)
   if (song) {
-    await tx.objectStore('songs').put({ ...song, deletedAt: now, updatedAt: now })
+    // A deleted song leaves its lists, so it cannot bring one back later.
+    const { lists: _lists, ...rest } = song
+    await tx.objectStore('songs').put({ ...rest, deletedAt: now, updatedAt: now })
     await markSong(outbox, id)
   }
   await tx.objectStore('files').delete(id)

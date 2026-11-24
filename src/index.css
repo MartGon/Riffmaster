@@ -636,6 +636,102 @@ button:disabled {
   padding-right: 8px;
 }
 
+/* The lists, as a row of buttons that wraps. */
+.list-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.list-count {
+  margin-left: 4px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.toggle[aria-pressed='true'] .list-count {
+  color: inherit;
+}
+
+.list-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.song-lists {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 0;
+  border: none;
+}
+
+.new-list {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.new-list .field {
+  flex: 1;
+}
+
+/* The place in a list being played through, in the top bar. */
+.playlist {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.playlist-place {
+  white-space: nowrap;
+}
+
+.playlist-name {
+  display: inline-block;
+  max-width: 9em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.playlist-short {
+  display: none;
+}
+
+/* On a phone the title needs the room: just "2/5". */
+@media (max-width: 480px) {
+  .playlist-name,
+  .playlist-long {
+    display: none;
+  }
+
+  .playlist-short {
+    display: inline;
+  }
+
+  .playlist .icon-button {
+    width: 30px;
+  }
+
+  /* Playing through a list, the title keeps what room there is. */
+  .topbar:has(.playlist) {
+    gap: 6px;
+  }
+
+  .topbar:has(.playlist) .song-artist {
+    display: none;
+  }
+}
+
 /* The remove button stays out of the way until the row is pointed at;
    on touch screens, which cannot hover, it is always there. */
 @media (hover: hover) {
