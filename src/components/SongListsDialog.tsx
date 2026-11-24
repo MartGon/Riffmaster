@@ -27,20 +27,28 @@ export function SongListsDialog({ song, lists, onChange, onClose }: Props) {
    */
   const [seen, setSeen] = useState(lists)
   const shown = [...seen, ...lists.filter((list) => !seen.includes(list))]
-  const field = useRef<HTMLFieldSetElement>(null)
+  /** The box or button last used, given the keyboard back once saving no longer disables it. */
+  const used = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     const element = dialog.current
     if (element && !element.open) element.showModal()
   }, [])
 
+  useEffect(() => {
+    if (busy || !used.current) return
+    used.current.focus()
+    used.current = null
+  }, [busy])
+
   /** Returns whether the change was saved. */
   const change = async (list: string, wanted: boolean): Promise<boolean> => {
     setBusy(true)
     setError(null)
     setPending((current) => ({ ...current, [list]: wanted }))
-    // Saving disables the boxes; the keyboard is put back on the one just used.
-    const box = document.activeElement instanceof HTMLInputElement && field.current?.contains(document.activeElement) ? document.activeElement : null
+    // Saving disables the boxes and Add; the keyboard is put back on the one just used.
+    const active = document.activeElement
+    if (active instanceof HTMLElement && dialog.current?.contains(active)) used.current = active
     try {
       await onChange(list, wanted)
       if (!seen.includes(list)) setSeen((current) => (current.includes(list) ? current : [...current, list]))
@@ -55,7 +63,6 @@ export function SongListsDialog({ song, lists, onChange, onClose }: Props) {
         delete next[list]
         return next
       })
-      if (box) requestAnimationFrame(() => box.focus())
     }
   }
 
@@ -81,7 +88,7 @@ export function SongListsDialog({ song, lists, onChange, onClose }: Props) {
     >
       <h2 id={`${id}-title`}>Lists for {song.title}</h2>
       {shown.length > 0 ? (
-        <fieldset ref={field} className="song-lists" disabled={busy}>
+        <fieldset className="song-lists" disabled={busy}>
           <legend className="visually-hidden">Lists</legend>
           {shown.map((list) => (
             <label key={list} className="check">

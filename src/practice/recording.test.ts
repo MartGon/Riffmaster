@@ -23,6 +23,8 @@ describe('recordings', () => {
     expect(peak(samples([new Float32Array(480).fill(0.1)], 24000, 0, 1))).toBeCloseTo(0.8, 3)
     expect(peak(samples([new Float32Array(480).fill(0.001)], 24000, 0, 1))).toBeCloseTo(0.02, 3)
     expect(peak(samples([new Float32Array(480)], 24000, 0, 1))).toBe(0)
+    // The loudest moment may be below zero.
+    expect(Math.min(...samples([Float32Array.from([0.1, -0.2])], 24000, 0, 1))).toBeCloseTo(-0.8, 3)
   })
 
   it('reads across blocks as one stretch would', () => {
@@ -33,7 +35,12 @@ describe('recordings', () => {
     const ramp = Float32Array.from({ length: 4800 }, (_, i) => i / 4800)
     const cut = samples([ramp], 48000, 0.05, 0.1)
     expect(cut.length).toBe(1200)
-    expect(cut[0]).toBeCloseTo((0.8 * (2400.5 / 4800)) / (4799 / 4800), 2)
+    // The first output averages input 2400 and 2401, the last 4798 and 4799.
+    expect(cut[0]).toBeCloseTo((0.8 * 2400.5) / 4798.5, 4)
+    // A cut from before the audio begins starts with it.
+    const early = samples([ramp], 48000, -0.05, 0.01)
+    expect(early.length).toBe(240)
+    expect(early[0]).toBeCloseTo((0.8 * 0.5) / 478.5, 4)
   })
 
   it('makes a small WAV of the stretch', () => {
