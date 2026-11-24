@@ -1,5 +1,5 @@
 import { randomId, sha256 } from '../lib/ids'
-import { type DBSchema, type IDBPDatabase, openDB } from 'idb'
+import { type DBSchema, type IDBPDatabase, type IDBPTransaction, openDB } from 'idb'
 import { type ListChanges, sameLists } from './lists'
 import { defaultSongSettings, type Song, type SongSettings, type TakeRecord, type TakeRecording } from './types'
 
@@ -406,19 +406,19 @@ export async function getRecording(takeId: string): Promise<TakeRecording | unde
   return { ...rest, wav }
 }
 
+/** The recording stores, within a transaction that holds them. */
+type RecordingStores = IDBPTransaction<LibrarySchema, ('recordings' | 'recordingAudio' | 'songs' | 'files' | 'takes' | 'outbox')[], 'readwrite'>
+
 /** The recordings of a song's takes, gone with them. */
-export async function forgetRecordings(songId: string): Promise<void> {
-  const tx = (await db()).transaction(['recordings', 'recordingAudio'], 'readwrite')
+export async function forgetRecordings(tx: RecordingStores, songId: string): Promise<void> {
   for (const key of await tx.objectStore('recordings').index('songId').getAllKeys(songId)) {
     await tx.objectStore('recordings').delete(key)
     await tx.objectStore('recordingAudio').delete(key)
   }
-  await tx.done
 }
 
 /** The recordings of a song's takes, moved with the takes to the song it was merged into. */
-export async function moveRecordings(from: string, to: string, takeId: (id: string) => string): Promise<void> {
-  const tx = (await db()).transaction(['recordings', 'recordingAudio'], 'readwrite')
+export async function moveRecordings(tx: RecordingStores, from: string, to: string, takeId: (id: string) => string): Promise<void> {
   const infos = tx.objectStore('recordings')
   const audio = tx.objectStore('recordingAudio')
   for (const info of await infos.index('songId').getAll(from)) {
@@ -430,7 +430,6 @@ export async function moveRecordings(from: string, to: string, takeId: (id: stri
     await audio.put(wav, id)
     await infos.put({ ...info, takeId: id, songId: to })
   }
-  await tx.done
 }
 
 /** Takes of a song that can be listened to. Recordings of takes since removed, here or by sync, go. */

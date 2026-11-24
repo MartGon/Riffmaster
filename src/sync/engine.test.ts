@@ -1,7 +1,14 @@
 import 'fake-indexeddb/auto'
 import { IDBFactory } from 'fake-indexeddb'
 import { openDB } from 'idb'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+/** Ids given next to new songs and takes, so a test can choose which copy of a song is kept; random otherwise. */
+const nextIds: string[] = []
+vi.mock('../lib/ids', async (original) => {
+  const ids = await original<typeof import('../lib/ids')>()
+  return { ...ids, randomId: () => nextIds.shift() ?? ids.randomId() }
+})
 import {
   saveSongLists,
   addSong,
@@ -116,9 +123,10 @@ class FakeServer {
   }
 }
 
-/** Two browsers, each with its own library. */
 const record = (takeId: string, songId: string) =>
   saveRecording({ takeId, songId, at: 1, wav: new ArrayBuffer(8), songStartMs: 0, startTick: 0, endTick: 960, speed: 1, trackIndex: 0 })
+
+/** Two browsers, each with its own library. */
 
 const devices = { a: new IDBFactory(), b: new IDBFactory() }
 async function on(device: keyof typeof devices) {
@@ -245,33 +253,37 @@ describe('sync', () => {
     expect(await getRecording(kept.id)).toBeUndefined()
   })
 
-  it('moves the recordings of a merged copy with its takes', async () => {
-    const onA = await addSong(song('Song A', 'same file'))
-    const takeA = await addTake(take(onA.id, 0))
-    await record(takeA.id, onA.id)
-    await on('b')
-    const onB = await addSong(song('Song A', 'same file'))
-    const takeB = await addTake(take(onB.id, 1))
-    await record(takeB.id, onB.id)
+  // Either device may hold the copy that is kept; the other's recordings move either way.
+  for (const keptOn of ['a', 'b'] as const) {
+    it(`moves the recordings of a merged copy with its takes, keeping the copy on ${keptOn}`, async () => {
+      nextIds.push(keptOn === 'a' ? 'song-1' : 'song-2', 'take-a')
+      const onA = await addSong(song('Song A', 'same file'))
+      const takeA = await addTake(take(onA.id, 0))
+      await record(takeA.id, onA.id)
+      await on('b')
+      nextIds.push(keptOn === 'b' ? 'song-1' : 'song-2', 'take-b')
+      const onB = await addSong(song('Song A', 'same file'))
+      const takeB = await addTake(take(onB.id, 1))
+      await record(takeB.id, onB.id)
 
-    await on('a')
-    await syncOnce(server.remote())
-    await on('b')
-    await syncOnce(server.remote())
-    await on('a')
-    await syncOnce(server.remote())
-
-    const kept = onA.id < onB.id ? onA.id : onB.id
-    for (const device of ['a', 'b'] as const) {
-      await on(device)
+      await on('a')
       await syncOnce(server.remote())
-      const own = device === 'a' ? takeA : takeB
-      const ownSong = device === 'a' ? onA.id : onB.id
-      const id = ownSong === kept ? own.id : `${own.id}.m`
-      expect((await listTakes(kept)).some((t) => t.id === id), device).toBe(true)
-      expect((await getRecording(id))?.songId, device).toBe(kept)
-    }
-  })
+      await on('b')
+      await syncOnce(server.remote())
+      await on('a')
+      await syncOnce(server.remote())
+
+      for (const device of ['a', 'b'] as const) {
+        await on(device)
+        await syncOnce(server.remote())
+        const own = device === 'a' ? takeA : takeB
+        const id = device === keptOn ? own.id : `${own.id}.m`
+        expect((await listTakes('song-1')).some((t) => t.id === id), device).toBe(true)
+        expect((await getRecording(id))?.songId, device).toBe('song-1')
+        if (device !== keptOn) expect(await getRecording(own.id), device).toBeUndefined()
+      }
+    })
+  }
 
   it('makes one song of the same file added on both devices, with both histories', async () => {
     const onA = await addSong(song('Song A', 'same file'))
