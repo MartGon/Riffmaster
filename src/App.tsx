@@ -96,6 +96,8 @@ function useMediaQuery(query: string): boolean {
   )
 }
 
+const SETUP_BLOCKS_EDIT = 'The tab is shown for your capo and strings. Set them back to as written to edit it.'
+
 export default function App() {
   const { state, actions, api, scoreRef, viewportRef, picking } = usePlayer()
   const library = useLibrary()
@@ -324,7 +326,6 @@ export default function App() {
   )
   /** Whether the tab is shown re-fretted for the player's capo or strings, which the editor must not save. */
   const setupOn = Object.keys(state.setups).length > 0
-  const SETUP_BLOCKS_EDIT = 'The tab is shown for your capo and strings. Set them back to as written to edit it.'
   useEffect(() => {
     if (!editAfterLoad.current || !ready) return
     editAfterLoad.current = false
@@ -432,12 +433,11 @@ export default function App() {
         soloTracks: [],
         volumes: {},
         pitch: state.pitch,
-        setups: state.setups,
       })
     } catch {
       setNotice('The original file could not be restored.')
     }
-  }, [actions, editor.actions, state.activeTrack, state.pitch, state.setups, state.speed])
+  }, [actions, editor.actions, state.activeTrack, state.pitch, state.speed])
 
   const settingsJson = ready
     ? JSON.stringify({
@@ -469,7 +469,14 @@ export default function App() {
   }, [flushSave])
 
   // The speed trainer keeps hold of playback between its rounds as well.
-  const listen = useListenBack(api, { masterVolume: state.masterVolume })
+  const listen = useListenBack(api, {
+    masterVolume: state.masterVolume,
+    speed: state.speed,
+    metronome: state.metronome,
+    countIn: state.countIn,
+    isLooping: state.isLooping,
+    pitch: state.pitch,
+  })
   useEffect(() => {
     stopListeningNow.current = listen.actions.stop
   })

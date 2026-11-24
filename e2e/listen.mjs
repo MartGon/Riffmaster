@@ -69,7 +69,7 @@ check('a take is made', got)
 await page.waitForTimeout(1500)
 
 // What was kept.
-const kept = await page.evaluate(async () => {
+const stored = await page.evaluate(async () => {
   const db = await new Promise((resolve, reject) => {
     const request = indexedDB.open('riffmaster')
     request.onsuccess = () => resolve(request.result)
@@ -86,8 +86,9 @@ const kept = await page.evaluate(async () => {
   db.close()
   return all.map((r, i) => ({ ...r, wav: [...new Uint8Array(sounds[i])] }))
 })
-check('the take keeps one recording', kept.length === 1, `${kept.length}`)
-const recording = kept[0]
+check('the take keeps one recording', stored.length === 1, `${stored.length}`)
+const recording = stored[0]
+check('it notes the pitch it was played at', recording.pitch === 0, String(recording.pitch))
 const decoded = decodeWav(Uint8Array.from(recording.wav))
 const seconds = decoded.samples.length / decoded.sampleRate
 check('cut to the take, at 24 kHz', decoded.sampleRate === 24000 && seconds > 8 && seconds < 13, `${seconds.toFixed(2)} s`)
@@ -135,13 +136,26 @@ const after = await page.evaluate(() => {
 })
 check('Stop ends it, and the player is as it was', (await page.$('.listen-bar')) === null && !after.playing && after.speed === songSpeed && after.volume > 0 && JSON.stringify({ countIn: after.countIn, metronome: after.metronome, looping: after.looping }) === JSON.stringify(before), JSON.stringify(after))
 
+// The speed changed while listening: listening ends, and the new speed stays.
+await listenButton.click()
+await page.waitForSelector('.listen-bar')
+await page.waitForFunction(() => window.__riffmaster.api().playerState === 1, null, { timeout: 8000 }).catch(() => {})
+await page.focus('input[aria-label="Tempo"]')
+await page.keyboard.press('ArrowLeft')
+await page.evaluate(() => document.activeElement?.blur())
+await page.waitForTimeout(400)
+const shown = (await page.textContent('.tempo-percent').catch(() => '')).trim()
+const kept = await page.evaluate(() => window.__riffmaster.api().playbackSpeed)
+check('a new speed while listening ends it, and is kept', (await page.$('.listen-bar')) === null && shown === `${Math.round(kept * 100)}%` && kept !== songSpeed, `${shown}, player ${kept}`)
+const newSpeed = kept
+
 // Start pressed while listening: listening ends first, and the take runs at the song's speed.
 await listenButton.click()
 await page.waitForSelector('.listen-bar')
 await page.waitForFunction(() => window.__riffmaster.api().playerState === 1, null, { timeout: 8000 }).catch(() => {})
 await page.click('.practice .button.primary')
 await page.waitForTimeout(400)
-check('Start ends listening, and the take runs at the song\'s speed', (await page.$('.listen-bar')) === null && (await page.evaluate(() => window.__riffmaster.api().playbackSpeed)) === songSpeed, String(await page.evaluate(() => window.__riffmaster.api().playbackSpeed)))
+check('Start ends listening, and the take runs at the song\'s speed', (await page.$('.listen-bar')) === null && (await page.evaluate(() => window.__riffmaster.api().playbackSpeed)) === newSpeed, String(await page.evaluate(() => window.__riffmaster.api().playbackSpeed)))
 await page.click('.practice button:has-text("Stop")').catch(() => {})
 await page.waitForFunction(() => window.__riffmaster.api().playerState !== 1, null, { timeout: 8000 }).catch(() => {})
 await page.waitForTimeout(1500)

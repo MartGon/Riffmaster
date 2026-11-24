@@ -2,6 +2,7 @@ import type * as alphaTab from '@coderline/alphatab'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getRecording } from '../library/db'
 import type { TakeRecord } from '../library/types'
+import { applyPitch } from '../player/usePlayer'
 
 /** What is heard while listening back: the take, the song as written, or both together. */
 export type ListenMix = 'both' | 'take' | 'original'
@@ -14,9 +15,15 @@ export interface ListenState {
   error: string | null
 }
 
+/** The player's choices, put back when listening ends; changing one while listening ends it. */
 interface PlayerNow {
-  /** The player's own volume, which "Your take" turns down and listening puts back. */
+  /** The player's own volume, which "Your take" turns down. */
   masterVolume: number
+  speed: number
+  metronome: boolean
+  countIn: boolean
+  isLooping: boolean
+  pitch: number
 }
 
 /**
@@ -40,19 +47,15 @@ interface Run {
   startedOffset: number
   startedAt: number
   songStartMs: number
+  /** The pitch the take was played at, when it is not the song's now. */
+  pitch: number | null
   /** (page clock − song clock) of the latest position reports. */
   anchors: number[]
   /** Readings in a row that found the take out of line. */
   drifting: number
-  /** The player as it was, put back exactly afterwards: listening changes none of the choices that are kept. */
-  before: {
-    speed: number
-    countIn: number
-    metronome: number
-    looping: boolean
-    range: alphaTab.synth.PlaybackRange | null
-    tick: number
-  } | null
+  /** The bars played under the take, and the section and position they replaced, put back unless changed meanwhile. */
+  range: alphaTab.synth.PlaybackRange | null
+  before: { range: alphaTab.synth.PlaybackRange | null; tick: number } | null
   playing: boolean
   unsubscribe: () => void
 }
@@ -60,6 +63,14 @@ interface Run {
 const median = (values: number[]) => {
   const sorted = [...values].sort((a, b) => a - b)
   return sorted[sorted.length >> 1]
+}
+
+const sameRange = (a: alphaTab.synth.PlaybackRange | null, b: alphaTab.synth.PlaybackRange | null) =>
+  a?.startTick === b?.startTick && a?.endTick === b?.endTick
+
+/** Shifts the song's pitched tracks, as the player does. */
+const setPitch = (api: alphaTab.AlphaTabApi, pitch: number) => {
+  if (api.score) applyPitch(api, api.score, pitch)
 }
 
 const stopSource = (run: Run) => {
@@ -75,8 +86,9 @@ const stopSource = (run: Run) => {
  * Plays a take's recording with the song, the cursor running along the tab.
  * The song plays at the take's speed over its bars; the recording follows the
  * song's clock, so it stays in line even if the song starts a little late.
- * The player is changed directly and put back afterwards, so nothing it
- * remembers (the song's speed, count-in, metronome) is changed by listening.
+ * The player is changed directly and put back afterwards to the choices it
+ * holds (the song's speed, count-in, metronome, pitch), so listening changes
+ * none of them; changing one while listening ends it.
  */
 export function useListenBack(api: alphaTab.AlphaTabApi | null, player: PlayerNow) {
   const [state, setState] = useState<ListenState>({ takeId: null, loading: false, mix: 'both', error: null })
@@ -115,15 +127,18 @@ export function useListenBack(api: alphaTab.AlphaTabApi | null, player: PlayerNo
       stopSource(run)
       void run.context.close().catch(() => {})
       const player = apiRef.current
-      if (player) {
+      const before = run.before
+      if (player && before) {
         if (player.playerState === 1) player.pause()
-        player.masterVolume = playerRef.current.masterVolume
-        const before = run.before
-        if (before) {
-          player.playbackSpeed = before.speed
-          player.countInVolume = before.countIn
-          player.metronomeVolume = before.metronome
-          player.isLooping = before.looping
+        const now = playerRef.current
+        player.masterVolume = now.masterVolume
+        player.playbackSpeed = now.speed
+        player.countInVolume = now.countIn ? 1 : 0
+        player.metronomeVolume = now.metronome ? 1 : 0
+        player.isLooping = now.isLooping
+        if (run.pitch !== null) setPitch(player, now.pitch)
+        // Bars chosen while listening stay chosen.
+        if (sameRange(player.playbackRange, run.range)) {
           player.playbackRange = before.range
           player.tickPosition = before.tick
         }
@@ -183,6 +198,8 @@ export function useListenBack(api: alphaTab.AlphaTabApi | null, player: PlayerNo
         songStartMs: 0,
         anchors: [],
         drifting: 0,
+        range: null,
+        pitch: null,
         before: null,
         playing: false,
         unsubscribe: () => {},
@@ -198,6 +215,11 @@ export function useListenBack(api: alphaTab.AlphaTabApi | null, player: PlayerNo
         run.songStartMs = recording.songStartMs
         const onPosition = (args: alphaTab.synth.PositionChangedEventArgs) => {
           if (runRef.current !== run || !run.playing) return
+          // Other bars were chosen: the take no longer belongs under them.
+          if (!sameRange(api.playbackRange, run.range)) {
+            stop()
+            return
+          }
           // Moved by hand: what was known of the clock no longer holds.
           if (args.isSeek) {
             run.anchors = []
@@ -218,14 +240,7 @@ export function useListenBack(api: alphaTab.AlphaTabApi | null, player: PlayerNo
           if (run.playing) stop()
         }
         if (api.playerState === 1) api.pause()
-        run.before = {
-          speed: api.playbackSpeed,
-          countIn: api.countInVolume,
-          metronome: api.metronomeVolume,
-          looping: api.isLooping,
-          range: api.playbackRange,
-          tick: api.tickPosition,
-        }
+        run.before = { range: api.playbackRange, tick: api.tickPosition }
         api.playerPositionChanged.on(onPosition)
         api.playerStateChanged.on(onState)
         run.unsubscribe = () => {
@@ -237,8 +252,14 @@ export function useListenBack(api: alphaTab.AlphaTabApi | null, player: PlayerNo
         api.countInVolume = 0
         api.metronomeVolume = 0
         api.isLooping = false
-        api.playbackRange = { startTick: recording.startTick, endTick: recording.endTick }
+        run.range = { startTick: recording.startTick, endTick: recording.endTick }
+        api.playbackRange = run.range
         api.tickPosition = recording.startTick
+        // In the key it was played in.
+        if (recording.pitch !== undefined && recording.pitch !== playerRef.current.pitch) {
+          run.pitch = recording.pitch
+          setPitch(api, recording.pitch)
+        }
         applyMix(mixRef.current)
         setState((s) => ({ ...s, loading: false }))
         api.play()
@@ -261,6 +282,12 @@ export function useListenBack(api: alphaTab.AlphaTabApi | null, player: PlayerNo
     },
     [applyMix],
   )
+
+  // A choice changed while listening: listening ends, and the player keeps the new choice.
+  const { speed, metronome, countIn, isLooping, pitch } = player
+  useEffect(() => {
+    if (runRef.current) stop()
+  }, [speed, metronome, countIn, isLooping, pitch, stop])
 
   useEffect(() => stop, [stop])
 

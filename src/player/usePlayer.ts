@@ -135,7 +135,7 @@ function describeTrack(track: alphaTab.model.Track): TrackInfo {
     volume: 1,
     tuning: staff && !staff.isPercussion ? [...staff.tuning] : [],
     capo: staff?.capo ?? 0,
-    writtenTuning: staff && !staff.isPercussion ? written.tuning : [],
+    writtenTuning: written.tuning,
     writtenCapo: written.capo,
     moved: applied?.reduce((sum, record) => sum + record.moved, 0) ?? 0,
     unplayable: applied?.reduce((sum, record) => sum + record.unplayable, 0) ?? 0,
@@ -172,7 +172,7 @@ function clampPitch(pitch: number | undefined): number {
 }
 
 /** Shifts every pitched track of the song; drums keep their sounds. */
-function applyPitch(api: alphaTab.AlphaTabApi, score: alphaTab.model.Score, pitch: number) {
+export function applyPitch(api: alphaTab.AlphaTabApi, score: alphaTab.model.Score, pitch: number) {
   const pitched = score.tracks.filter((track) => !track.staves.some((staff) => staff.isPercussion))
   if (pitched.length > 0) api.changeTrackTranspositionPitch(pitched, pitch)
 }

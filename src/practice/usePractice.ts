@@ -276,6 +276,7 @@ function recordingOf(take: Take, pass: Pass, expected: TabNote[], heardAt: (song
     endTick: take.range.endTick,
     speed: take.speed,
     trackIndex: take.trackIndex,
+    pitch: take.pitch,
   }
 }
 

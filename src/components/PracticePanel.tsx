@@ -405,7 +405,7 @@ export function PracticePanel({ state, actions, speed, takes, progress, recorded
       {listening.takeId && (
         <div className="listen-bar" role="group" aria-label="Listening back">
           <span className="listen-what">{listening.loading ? 'Getting the take ready…' : heard ? `Your take of ${when(heard.at)}` : 'Your take'}</span>
-          <div className="listen-mix" role="radiogroup" aria-label="What to hear">
+          <div className="listen-mix" role="group" aria-label="What to hear">
             {(
               [
                 ['take', 'Your take'],
@@ -413,7 +413,7 @@ export function PracticePanel({ state, actions, speed, takes, progress, recorded
                 ['original', 'Original'],
               ] as const
             ).map(([mix, label]) => (
-              <button key={mix} type="button" className="toggle" role="radio" aria-checked={listening.mix === mix} onClick={() => onMix(mix)}>
+              <button key={mix} type="button" className="toggle" aria-pressed={listening.mix === mix} onClick={() => onMix(mix)}>
                 {label}
               </button>
             ))}

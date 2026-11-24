@@ -108,6 +108,8 @@ export interface TakeRecording {
   endTick: number
   speed: number
   trackIndex: number
+  /** Semitones the song was shifted by; missing in recordings kept before it was noted. */
+  pitch?: number
 }
 
 /**
