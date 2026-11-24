@@ -346,20 +346,3 @@ export async function clearTakes(songId: string, trackIndex: number): Promise<vo
   changed()
 }
 
-export interface SongPractice {
-  takes: number
-  /** Best accuracy among the takes, from 0 to 1. */
-  best: number
-}
-
-/** How much each song has been practised, keyed by song id. */
-export async function practiceBySong(): Promise<Map<string, SongPractice>> {
-  const totals = new Map<string, SongPractice>()
-  for (const take of await (await db()).getAll('takes')) {
-    const entry = totals.get(take.songId) ?? { takes: 0, best: 0 }
-    entry.takes++
-    entry.best = Math.max(entry.best, take.accuracy)
-    totals.set(take.songId, entry)
-  }
-  return totals
-}

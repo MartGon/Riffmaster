@@ -10,7 +10,6 @@ import {
   listTakes,
   openSong,
   hasOriginal,
-  practiceBySong,
   resetConnection,
   restoreOriginal,
   saveEditedSong,
@@ -129,14 +128,6 @@ describe('practice history', () => {
     await addTake(take(a.id, 2000))
     await deleteSong(a.id, 3000)
     expect(await listTakes(a.id)).toEqual([])
-  })
-
-  it('sums up practice per song', async () => {
-    const a = await addSong(song('A'), 1000)
-    await addTake(take(a.id, 2000, { accuracy: 0.6 }))
-    await addTake(take(a.id, 3000, { accuracy: 0.9 }))
-    const totals = await practiceBySong()
-    expect(totals.get(a.id)).toEqual({ takes: 2, best: 0.9 })
   })
 
   it('keeps songs when an older library is upgraded', async () => {

@@ -40,6 +40,7 @@ They need:
 | `pedal.mjs` | Foot pedal: page-turner keys play and stop, go back, reach the next section, start and stop a take, skip in wait mode; keys can be changed; typing, sliders and dialogs keep their keys. Dev server on 5173; needs the sample tab |
 | `findnote.mjs` | Find the note: prompts follow the played notes, a wrong note is named and costs points, time runs out, a score and best are kept. Dev server on 5173 |
 | `capo.mjs` | Capo and single strings: the tab is re-fretted for the player's guitar, notes below the capo move strings, practice listens for the same notes, the tuner and fretboard follow, editing waits, and the choice is kept. Dev server on 5173 |
+| `progress.mjs` | Progress per song: how much of a song is learned in the library and the history, the practice streak and this week's minutes, from takes written into storage. Dev server on 5173 |
 | `mixer.mjs` | Master and track volumes, remembered per device and per song; the app's name |
 | `editor.mjs` | The tab editor: typing, undo, clicks, copy and paste, bars, saving and restoring, the unsaved-changes question, new tabs, phone size. `node editor.mjs song\|new\|phone\|all` |
 | `theme.mjs` | The theme switch: system, light and dark, remembered after a reload and in other tabs, the score re-coloured |

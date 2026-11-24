@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { SongProgress } from '../practice/progress'
 import type { TakeRecord } from '../library/types'
 import { TIMING_LEEWAYS, type TimingLeeway } from '../practice/matching'
 import { noteName } from '../tuner/tuning'
@@ -102,13 +103,14 @@ interface Props {
   speed: number
   /** Practice takes of the shown track, oldest first. */
   takes: TakeRecord[]
+  progress: SongProgress | null
   onLoopBar: (bar: number) => void
   onClearHistory: () => void
   /** Makes a practice piece from the selected bars. */
   onDrill: () => void
 }
 
-export function PracticePanel({ state, actions, speed, takes, onLoopBar, onClearHistory, onDrill }: Props) {
+export function PracticePanel({ state, actions, speed, takes, progress, onLoopBar, onClearHistory, onDrill }: Props) {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [report, setReport] = useState<TakeDetails | null>(null)
   const following = state.phase === 'following'
@@ -392,7 +394,7 @@ export function PracticePanel({ state, actions, speed, takes, onLoopBar, onClear
       )}
       {report && <TakeReportDialog details={report} onSave={actions.saveTake} onClose={() => setReport(null)} />}
       {historyOpen && (
-        <HistoryView takes={takes} disabled={busy} onLoopBar={onLoopBar} onClear={onClearHistory} />
+        <HistoryView takes={takes} progress={progress} disabled={busy} onLoopBar={onLoopBar} onClear={onClearHistory} />
       )}
     </section>
   )

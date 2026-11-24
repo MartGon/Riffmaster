@@ -105,11 +105,11 @@ export function usePlan(songs: Song[] | null) {
   }, [])
 
   /** Notes a song's saved size: bars or tracks edited away take their history out of the plan. */
-  const noteSongSize = useCallback((id: string, bars: number, tracks: number) => {
+  const noteSongSize = useCallback((id: string, bars: number, tracks: number, noted: Record<number, number>) => {
     setStored((current) => {
       const known = current.sizes[id]
-      if (known?.bars === bars && known.tracks === tracks) return current
-      return { ...current, sizes: { ...current.sizes, [id]: { bars, tracks } } }
+      if (known?.bars === bars && known.tracks === tracks && JSON.stringify(known.noted) === JSON.stringify(noted)) return current
+      return { ...current, sizes: { ...current.sizes, [id]: { bars, tracks, noted } } }
     })
   }, [])
 
@@ -123,5 +123,5 @@ export function usePlan(songs: Song[] | null) {
     [day],
   )
 
-  return { steps, done, skipped, minutes: stored.minutes, setMinutes, skip, noteSongSize, refresh }
+  return { steps, done, skipped, minutes: stored.minutes, setMinutes, skip, noteSongSize, refresh, takes, now, sizes: stored.sizes }
 }

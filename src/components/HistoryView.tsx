@@ -1,10 +1,13 @@
 import type { TakeRecord } from '../library/types'
 import { summarizeHistory, troubleBars } from '../practice/history'
+import type { SongProgress } from '../practice/progress'
 import { timingAssessed, timingHabits } from '../practice/tendencies'
 
 interface Props {
   /** Takes of the shown track, oldest first. */
   takes: TakeRecord[]
+  /** How far along the track is, worked out from the same takes. */
+  progress: SongProgress | null
   disabled: boolean
   onLoopBar: (bar: number) => void
   onClear: () => void
@@ -76,7 +79,7 @@ function Trend({ takes }: { takes: TakeRecord[] }) {
 }
 
 /** Practice history of one track: the trend, the latest takes and the bars that keep going wrong. */
-export function HistoryView({ takes, disabled, onLoopBar, onClear }: Props) {
+export function HistoryView({ takes, progress, disabled, onLoopBar, onClear }: Props) {
   if (takes.length === 0) {
     return (
       <div className="history">
@@ -103,6 +106,16 @@ export function HistoryView({ takes, disabled, onLoopBar, onClear }: Props) {
             </>
           )}
         </p>
+        {progress && (
+          <p className="practice-message history-mastery">
+            <strong>{percent(progress.mastery)} learned.</strong> {progress.mastered} of {progress.total}{' '}
+            {progress.total === 1 ? 'bar' : 'bars'} clean at full tempo
+            {progress.learning > 0 && `, ${progress.learning} coming along`}
+            {progress.total - progress.mastered - progress.learning > 0 &&
+              `, ${progress.total - progress.mastered - progress.learning} not played yet`}
+            .
+          </p>
+        )}
       </div>
       <table className="history-table">
         <caption>Latest takes</caption>

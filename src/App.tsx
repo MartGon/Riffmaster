@@ -5,6 +5,7 @@ import { EditorPanel } from './components/EditorPanel'
 import { ExerciseDialog } from './components/ExerciseDialog'
 import { FindNoteDialog } from './components/FindNoteDialog'
 import { GuitarSetupPicker } from './components/GuitarSetupPicker'
+import { practiceStreak, progressBySong, songProgress, weekMinutes } from './practice/progress'
 import { ChoiceDialog } from './components/FormDialog'
 import { Fretboard } from './components/Fretboard'
 import { Icon } from './components/Icon'
@@ -343,9 +344,36 @@ export default function App() {
   const savedBars = ready && !editor.state.dirty ? api?.score?.masterBars.length : undefined
   const noteSongSize = plan.noteSongSize
   const trackCount = state.tracks.length
+  // Also how many bars of each track have notes, so a song's progress counts the bars not played yet.
+  const savedScore = savedBars ? api?.score : undefined
   useEffect(() => {
-    if (songId && savedBars) noteSongSize(songId, savedBars, trackCount)
-  }, [noteSongSize, savedBars, songId, trackCount])
+    const score = savedScore
+    if (!songId || !savedBars || !score) return
+    const noted: Record<number, number> = {}
+    for (const track of score.tracks) {
+      // Bars practice scores: any staff, with a note that is neither muted, tied on nor a grace note.
+      const scored = new Set<number>()
+      for (const staff of track.staves) {
+        for (const bar of staff.bars) {
+          const has = bar.voices.some((voice) =>
+            voice.beats.some((beat) => !beat.isRest && beat.graceType === 0 && beat.notes.some((note) => !note.isDead && !note.isTieDestination)),
+          )
+          if (has) scored.add(bar.index)
+        }
+      }
+      noted[track.index] = scored.size
+    }
+    noteSongSize(songId, savedBars, trackCount, noted)
+  }, [noteSongSize, savedBars, savedScore, songId, trackCount])
+  const libraryProgress = useMemo(() => progressBySong(plan.takes, plan.sizes), [plan.takes, plan.sizes])
+  const practiceSummary = useMemo(
+    () => ({ streak: practiceStreak(plan.takes, plan.now), minutes: weekMinutes(plan.takes, plan.now) }),
+    [plan.takes, plan.now],
+  )
+  const trackProgress = useMemo(
+    () => (songId ? songProgress(trackTakes, plan.sizes[songId], state.activeTrack) : null),
+    [plan.sizes, songId, state.activeTrack, trackTakes],
+  )
 
   const restoreOriginalFile = useCallback(async () => {
     const id = songIdRef.current
@@ -919,7 +947,9 @@ export default function App() {
       {!inPlayer && (
         <LibraryView
           songs={library.songs}
-          practice={library.practice}
+          progress={libraryProgress}
+          streak={practiceSummary.streak}
+          weekMinutes={practiceSummary.minutes}
           busy={busy}
           onOpen={(song) => open(song)}
           onAdd={openPicker}
@@ -1014,6 +1044,7 @@ export default function App() {
           actions={practice.actions}
           speed={state.speed}
           takes={trackTakes}
+          progress={trackProgress}
           onDrill={startDrill}
           onLoopBar={(bar) => actions.selectBars(bar, bar, true)}
           onClearHistory={() => {

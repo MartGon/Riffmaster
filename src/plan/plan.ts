@@ -184,7 +184,8 @@ export interface WarmUp {
 type PlanSong = Pick<Song, 'id' | 'title' | 'artist' | 'addedAt' | 'settings'>
 
 /** How many bars and tracks a song had when last opened; history beyond them was edited away. */
-export type SongSizes = Record<string, { bars: number; tracks: number }>
+/** A song's size when last opened on this device, and how many bars of each track have notes. */
+export type SongSizes = Record<string, { bars: number; tracks: number; noted?: Record<number, number> }>
 
 interface Candidate {
   step: PlanStep

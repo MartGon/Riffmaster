@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import type { SongPractice } from '../library/db'
+import type { SongProgress } from '../practice/progress'
 import type { Song } from '../library/types'
 import { versionText } from '../lib/version'
 import { Icon } from './Icon'
@@ -7,8 +7,11 @@ import { Icon } from './Icon'
 interface Props {
   /** Null while the list is being read from storage. */
   songs: Song[] | null
-  /** How much each song has been practised, keyed by song id. */
-  practice: Map<string, SongPractice>
+  /** How far along each practised song is, keyed by song id. */
+  progress: Map<string, SongProgress>
+  /** Days in a row with practice, and minutes practised in the last seven days. */
+  streak: number
+  weekMinutes: number
   busy: boolean
   onOpen: (song: Song) => void
   onDelete: (song: Song) => void
@@ -30,13 +33,37 @@ function formatOpened(timestamp: number): string {
   })
 }
 
-function practiceText(practice: SongPractice | undefined): string {
-  if (!practice) return ''
-  const takes = practice.takes === 1 ? '1 practice take' : `${practice.takes} practice takes`
-  return `${takes}, best ${Math.round(practice.best * 100)}%`
+function practiceText(progress: SongProgress | undefined): string {
+  if (!progress) return ''
+  const takes = progress.takes === 1 ? '1 take' : `${progress.takes} takes`
+  return `${takes}, ${Math.round(progress.mastery * 100)}% learned`
 }
 
-export function LibraryView({ songs, practice, busy, onOpen, onDelete, onAdd, onNew, onExercises, onFindNote, plan }: Props) {
+/** The practice streak and this week's minutes, when there is something to say. */
+function practiceLine(streak: number, minutes: number): string {
+  const parts: string[] = []
+  if (streak > 0) parts.push(streak === 1 ? 'Practised today or yesterday' : `${streak}-day practice streak`)
+  if (minutes > 0) parts.push(`${minutes} min this week`)
+  return parts.join(' · ')
+}
+
+/** A song's mastery as a thin bar under its name. */
+function Mastery({ progress }: { progress: SongProgress }) {
+  const percent = Math.round(progress.mastery * 100)
+  return (
+    <span
+      className="mastery"
+      // The row already says how much is learned.
+      aria-hidden="true"
+      title={`${percent}% learned: ${progress.mastered} of ${progress.total} bars clean at full tempo, ${progress.learning} still coming along`}
+    >
+      <span style={{ width: `${percent}%` }} />
+    </span>
+  )
+}
+
+export function LibraryView({ songs, progress, streak, weekMinutes, busy, onOpen, onDelete, onAdd, onNew, onExercises, onFindNote, plan }: Props) {
+  const practised = practiceLine(streak, weekMinutes)
   if (songs === null) return <div className="library" />
 
   if (songs.length === 0) {
@@ -96,6 +123,7 @@ export function LibraryView({ songs, practice, busy, onOpen, onDelete, onAdd, on
           </button>
         </div>
       </div>
+      {practised && <p className="library-streak">{practised}</p>}
       {plan}
       <ul className="songs">
         {songs.map((song) => (
@@ -110,11 +138,12 @@ export function LibraryView({ songs, practice, busy, onOpen, onDelete, onAdd, on
                   {[
                     song.artist,
                     `Opened ${formatOpened(song.lastOpenedAt)}`,
-                    practiceText(practice.get(song.id)),
+                    practiceText(progress.get(song.id)),
                   ]
                     .filter(Boolean)
                     .join(' · ')}
                 </span>
+                {progress.has(song.id) && <Mastery progress={progress.get(song.id)!} />}
               </span>
             </button>
             <button

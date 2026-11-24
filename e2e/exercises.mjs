@@ -311,7 +311,7 @@ async function practice() {
     await page.click('.topbar .button')
     await page.waitForSelector('.library-head')
     const row = await page.textContent('.song-row')
-    check('practice: the take is kept in the history', /1 practice take, best 91%/.test(row), row)
+    check('practice: the take is kept in the history', /1 take, \d+% learned/.test(row), row)
   }
   check('practice: no errors', errors.length === 0, errors.slice(0, 3).join(' | ').slice(0, 300))
   await browser.close()

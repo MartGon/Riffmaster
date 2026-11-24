@@ -700,6 +700,8 @@ export function usePractice(
           accuracy: summary.accuracy,
           bars: tallyBars(bars, scored.results),
           trainer: trainerRef.current.running,
+          // Time spent playing; a pass left running for ages is not all practice.
+          durationMs: Math.round(Math.min(30 * 60_000, Math.max(0, (pass.endedAt ?? performance.now()) - pass.startedAt))),
           // With a delay that may be a note out, who is early and who is late cannot be told.
           timing:
             scored.latencySource === 'measured' || (scored.latencySource === 'estimated' && !scored.estimate?.ambiguous)

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { deleteSong, listSongs, practiceBySong, setBlockedHandler, type SongPractice } from './db'
+import { deleteSong, listSongs, setBlockedHandler } from './db'
 import { importFile, UnreadableFileError } from './importFile'
 import type { Song } from './types'
 
@@ -15,14 +15,12 @@ export interface ImportResult {
 export function useLibrary() {
   const [songs, setSongs] = useState<Song[] | null>(null)
   const [storageError, setStorageError] = useState(false)
-  const [practice, setPractice] = useState<Map<string, SongPractice>>(new Map())
   /** True while another tab with an older version of the app keeps the library from opening. */
   const [blocked, setBlocked] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
       setSongs(await listSongs())
-      setPractice(await practiceBySong())
     } catch {
       setSongs([])
       setStorageError(true)
@@ -37,7 +35,6 @@ export function useLibrary() {
         if (!current) return
         setBlocked(false)
         setSongs(list)
-        void practiceBySong().then((totals) => current && setPractice(totals), () => {})
       },
       () => {
         if (!current) return
@@ -76,5 +73,5 @@ export function useLibrary() {
     [refresh],
   )
 
-  return { songs, practice, storageError, blocked, refresh, addFiles, remove }
+  return { songs, storageError, blocked, refresh, addFiles, remove }
 }

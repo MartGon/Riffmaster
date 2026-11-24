@@ -117,4 +117,6 @@ export interface TakeRecord {
   trainer: boolean
   /** How the notes sat against each other. Missing in takes from before it was kept. */
   timing?: TimingTally
+  /** How long the take lasted, in ms. Missing in takes from before it was kept. */
+  durationMs?: number
 }
