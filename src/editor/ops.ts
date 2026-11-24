@@ -9,7 +9,7 @@ type Note = alphaTab.model.Note
 type Bar = alphaTab.model.Bar
 const model = alphaTab.model
 
-/** Highest fret the editor accepts. */
+/** Highest fret the editor accepts, and that notes are moved to. */
 export const MAX_FRET = 24
 
 export function staffOf(score: Score, track: number): alphaTab.model.Staff {

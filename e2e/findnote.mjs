@@ -22,8 +22,15 @@ function writeWav(file, samples) {
   for (let i = 0; i < samples.length; i++) data.writeInt16LE(Math.round(Math.max(-1, Math.min(1, samples[i])) * 32767), 44 + i * 2)
   fs.writeFileSync(file, data)
 }
-const seededSource = `(() => { let seed = 7; return () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 2 ** 32 } })()`
-const targets = buildTargets({ ...DEFAULT_SETTINGS }, eval(seededSource))
+// The same random numbers here and in the page.
+function seeded() {
+  let seed = 7
+  return () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
+    return seed / 2 ** 32
+  }
+}
+const targets = buildTargets({ ...DEFAULT_SETTINGS }, seeded())
 
 // Answers come well after each prompt. Note 3 is first played a tone wrong; the last is never played.
 const FIRST = 5.5, GAP = 2
@@ -53,7 +60,7 @@ await page.waitForSelector('.find-note form')
 check('the dialog fits a phone', await page.$eval('.find-note', (e) => e.scrollWidth <= e.clientWidth + 1))
 await page.screenshot({ path: `${out}findnote-setup.png` })
 // The notes are drawn when Start is pressed, so the same random numbers give the notes above.
-await page.evaluate((source) => { Math.random = eval(source) }, seededSource)
+await page.evaluate(`Math.random = (${seeded})()`)
 await page.click('.find-note button:has-text("Start")')
 await page.waitForSelector('.find-note-count', { timeout: 8000 })
 check('it counts in', true)

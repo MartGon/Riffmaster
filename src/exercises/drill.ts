@@ -1,4 +1,5 @@
 import * as alphaTab from '@coderline/alphatab'
+import { MAX_FRET } from '../editor/ops'
 import { deepCopy, type JsMap, list, rebuild, serialize } from '../editor/tree'
 
 type Score = alphaTab.model.Score
@@ -15,7 +16,6 @@ const CHUNK_TEMPO = 0.75
 const VARIATION_TEMPO = 0.8
 /** Passages this short are split at the half bar, and each chunk is played twice. */
 const SHORT_PASSAGE_BARS = 2
-const MAX_FRET = 24
 /** Moving a line one string over keeps its intervals by moving it this many semitones. */
 const STRING_INTERVAL = 5
 const EIGHTH = 8

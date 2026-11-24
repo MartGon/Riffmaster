@@ -1,5 +1,5 @@
 import type { TakeRecord } from '../library/types'
-import { takeTime } from '../lib/format'
+import { takeTime as when } from '../lib/format'
 import { Icon } from './Icon'
 import { summarizeHistory, troubleBars } from '../practice/history'
 import type { SongProgress } from '../practice/progress'
@@ -22,7 +22,6 @@ interface Props {
 
 const percent = (share: number) => `${Math.round(share * 100)}%`
 
-const when = takeTime
 
 const describe = (take: TakeRecord) =>
   `${when(take.at)}: ${percent(take.accuracy)} of ${take.scored} notes at ${percent(take.speed)} tempo`

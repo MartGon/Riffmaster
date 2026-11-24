@@ -1,4 +1,5 @@
 import * as alphaTab from '@coderline/alphatab'
+import { MAX_FRET } from '../editor/ops'
 
 /**
  * How the player's guitar differs from a track as written, beyond the
@@ -19,8 +20,6 @@ export type GuitarSetups = Record<number, GuitarSetup>
 export const MAX_CAPO = 12
 /** The furthest one string is retuned, either way. */
 export const MAX_STRING_SHIFT = 5
-/** The highest fret a note is moved to. */
-export const MAX_FRET = 24
 
 const whole = (value: unknown, min: number, max: number): number | null =>
   typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max ? value : null

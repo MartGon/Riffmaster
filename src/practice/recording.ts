@@ -14,53 +14,6 @@ export const TAIL_MS = 1500
 const PEAK = 0.8
 const MAX_GAIN = 20
 
-/** A stretch of the audio heard, by sample position, from blocks laid end to end. */
-export function clipSamples(blocks: Float32Array[], from: number, to: number): Float32Array {
-  const start = Math.max(0, Math.floor(from))
-  const total = blocks.reduce((sum, block) => sum + block.length, 0)
-  const end = Math.min(total, Math.ceil(to))
-  const out = new Float32Array(Math.max(0, end - start))
-  let at = 0
-  for (const block of blocks) {
-    const blockEnd = at + block.length
-    if (blockEnd > start && at < end) {
-      const a = Math.max(start, at)
-      const b = Math.min(end, blockEnd)
-      out.set(block.subarray(a - at, b - at), a - start)
-    }
-    at = blockEnd
-    if (at >= end) break
-  }
-  return out
-}
-
-/** Changes the sample rate; going down, each output sample averages the input it covers, so nothing folds back. */
-export function resample(samples: Float32Array, fromRate: number, toRate: number): Float32Array {
-  if (fromRate === toRate) return samples.slice()
-  const ratio = fromRate / toRate
-  const out = new Float32Array(Math.floor(samples.length / ratio))
-  for (let i = 0; i < out.length; i++) {
-    const start = i * ratio
-    if (ratio > 1) {
-      const from = Math.floor(start)
-      const to = Math.min(samples.length, Math.floor(start + ratio))
-      let sum = 0
-      for (let j = from; j < to; j++) sum += samples[j]
-      out[i] = to > from ? sum / (to - from) : 0
-    } else {
-      const j = Math.floor(start)
-      const t = start - j
-      out[i] = (samples[j] ?? 0) * (1 - t) + (samples[j + 1] ?? samples[j] ?? 0) * t
-    }
-  }
-  return out
-}
-
-/** Brings the loudest moment to a steady level, within reason. */
-export function normalize(samples: Float32Array): Float32Array {
-  return normalizeInPlace(samples.slice())
-}
-
 /**
  * A stretch of the take, in seconds of its audio, as a small WAV file. Read
  * straight from the blocks at the lower rate, so a long take is not copied
