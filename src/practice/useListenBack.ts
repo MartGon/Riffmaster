@@ -55,7 +55,12 @@ interface Run {
   drifting: number
   /** The bars played under the take, and the section and position they replaced, put back unless changed meanwhile. */
   range: alphaTab.synth.PlaybackRange | null
-  before: { range: alphaTab.synth.PlaybackRange | null; tick: number } | null
+  before: { range: alphaTab.synth.PlaybackRange | null; tick: number; resetOnClick: boolean } | null
+  /** The song listened under, and the speed it was set to: what is found otherwise when listening ends was changed meanwhile, and stays. */
+  score: alphaTab.model.Score | null
+  speed: number
+  /** Set once the song is started for the take, so the player's own earlier state is not taken for it. */
+  started: boolean
   playing: boolean
   unsubscribe: () => void
 }
@@ -72,6 +77,23 @@ const sameRange = (a: alphaTab.synth.PlaybackRange | null, b: alphaTab.synth.Pla
 const setPitch = (api: alphaTab.AlphaTabApi, pitch: number) => {
   if (api.score) applyPitch(api, api.score, pitch)
 }
+
+/** Pauses the player, and waits until it has paused (or a second has passed). */
+const pausePlayer = (api: alphaTab.AlphaTabApi) =>
+  new Promise<void>((resolve) => {
+    const done = () => {
+      window.clearTimeout(timer)
+      api.playerStateChanged.off(paused)
+      resolve()
+    }
+    // The player tells a new listener its state at once; only a change counts.
+    const paused = (args: alphaTab.synth.PlayerStateChangedEventArgs) => {
+      if (args.state !== 1) done()
+    }
+    const timer = window.setTimeout(done, 1000)
+    api.playerStateChanged.on(paused)
+    api.pause()
+  })
 
 const stopSource = (run: Run) => {
   try {
@@ -129,18 +151,23 @@ export function useListenBack(api: alphaTab.AlphaTabApi | null, player: PlayerNo
       const player = apiRef.current
       const before = run.before
       if (player && before) {
-        if (player.playerState === 1) player.pause()
         const now = playerRef.current
         player.masterVolume = now.masterVolume
-        player.playbackSpeed = now.speed
-        player.countInVolume = now.countIn ? 1 : 0
-        player.metronomeVolume = now.metronome ? 1 : 0
-        player.isLooping = now.isLooping
-        if (run.pitch !== null) setPitch(player, now.pitch)
-        // Bars chosen while listening stay chosen.
-        if (sameRange(player.playbackRange, run.range)) {
-          player.playbackRange = before.range
-          player.tickPosition = before.tick
+        player.settings.player.resetPlaybackRangeOnClick = before.resetOnClick
+        // Another song has been opened since and set the player up itself.
+        if (player.score === run.score) {
+          if (player.playerState === 1) player.pause()
+          // Each choice is put back only where it is still as listening set it.
+          if (player.playbackSpeed === run.speed) player.playbackSpeed = now.speed
+          if (player.countInVolume === 0) player.countInVolume = now.countIn ? 1 : 0
+          if (player.metronomeVolume === 0) player.metronomeVolume = now.metronome ? 1 : 0
+          if (!player.isLooping) player.isLooping = now.isLooping
+          if (run.pitch !== null) setPitch(player, now.pitch)
+          // Bars chosen while listening stay chosen.
+          if (sameRange(player.playbackRange, run.range)) {
+            player.playbackRange = before.range
+            player.tickPosition = before.tick
+          }
         }
       }
     }
@@ -201,6 +228,9 @@ export function useListenBack(api: alphaTab.AlphaTabApi | null, player: PlayerNo
         range: null,
         pitch: null,
         before: null,
+        score: api.score,
+        speed: 1,
+        started: false,
         playing: false,
         unsubscribe: () => {},
       }
@@ -211,6 +241,11 @@ export function useListenBack(api: alphaTab.AlphaTabApi | null, player: PlayerNo
         if (!recording) throw new Error('missing')
         const buffer = await context.decodeAudioData(recording.wav.slice(0))
         if (mine !== request.current || runRef.current !== run) return
+        // The song playing is stopped first: until the player says it has, it would not start again.
+        if (api.playerState === 1) {
+          await pausePlayer(api)
+          if (mine !== request.current || runRef.current !== run) return
+        }
         run.buffer = buffer
         run.songStartMs = recording.songStartMs
         const onPosition = (args: alphaTab.synth.PositionChangedEventArgs) => {
@@ -233,14 +268,13 @@ export function useListenBack(api: alphaTab.AlphaTabApi | null, player: PlayerNo
         const onState = (args: alphaTab.synth.PlayerStateChangedEventArgs) => {
           if (runRef.current !== run) return
           if (args.state === 1) {
-            run.playing = true
+            if (run.started) run.playing = true
             return
           }
           // Stopped by hand or at the end of the take's bars: listening is over.
           if (run.playing) stop()
         }
-        if (api.playerState === 1) api.pause()
-        run.before = { range: api.playbackRange, tick: api.tickPosition }
+        run.before = { range: api.playbackRange, tick: api.tickPosition, resetOnClick: api.settings.player.resetPlaybackRangeOnClick }
         api.playerPositionChanged.on(onPosition)
         api.playerStateChanged.on(onState)
         run.unsubscribe = () => {
@@ -249,6 +283,9 @@ export function useListenBack(api: alphaTab.AlphaTabApi | null, player: PlayerNo
         }
         // The take's bars once through, at its speed, with nothing else sounding.
         api.playbackSpeed = recording.speed
+        run.speed = api.playbackSpeed
+        // A tap on the tab moves within the take's bars rather than letting them go.
+        api.settings.player.resetPlaybackRangeOnClick = false
         api.countInVolume = 0
         api.metronomeVolume = 0
         api.isLooping = false
@@ -262,6 +299,7 @@ export function useListenBack(api: alphaTab.AlphaTabApi | null, player: PlayerNo
         }
         applyMix(mixRef.current)
         setState((s) => ({ ...s, loading: false }))
+        run.started = true
         api.play()
       } catch {
         if (mine !== request.current || runRef.current !== run) return

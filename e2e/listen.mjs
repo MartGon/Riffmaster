@@ -136,6 +136,38 @@ const after = await page.evaluate(() => {
 })
 check('Stop ends it, and the player is as it was', (await page.$('.listen-bar')) === null && !after.playing && after.speed === songSpeed && after.volume > 0 && JSON.stringify({ countIn: after.countIn, metronome: after.metronome, looping: after.looping }) === JSON.stringify(before), JSON.stringify(after))
 
+// A tap on the tab while listening moves within the take, which plays on from there.
+await listenButton.click()
+await page.waitForSelector('.listen-bar')
+await page.waitForFunction(() => window.__riffmaster.api().playerState === 1, null, { timeout: 8000 }).catch(() => {})
+await page.waitForTimeout(800)
+const point = await page.evaluate(() => {
+  const api = window.__riffmaster.api()
+  const beat = api.score.tracks[0].staves[0].bars[2].voices[0].beats[0]
+  const bounds = api.renderer.boundsLookup.findBeat(beat)
+  const surface = document.querySelector('.at-surface')
+  surface.scrollIntoView({ block: 'center' })
+  const rect = surface.getBoundingClientRect()
+  return bounds && { x: rect.left + bounds.visualBounds.x + bounds.visualBounds.w / 2, y: rect.top + bounds.visualBounds.y + bounds.visualBounds.h / 2 }
+})
+const startsBeforeTap = await page.evaluate(() => window.__starts.length)
+if (point) await page.mouse.click(point.x, point.y)
+await page.waitForTimeout(1200)
+const tapped = await page.evaluate(() => ({ range: window.__riffmaster.api().playbackRange !== null, playing: window.__riffmaster.api().playerState === 1, starts: window.__starts.length }))
+check('a tap on the tab while listening moves the take with it', point !== null && (await page.$('.listen-bar')) !== null && tapped.range && tapped.playing && tapped.starts > startsBeforeTap, JSON.stringify(tapped))
+await page.click('.listen-bar button:has-text("Stop")')
+await page.waitForTimeout(400)
+
+// Listen pressed while the song plays: the song stops and the take plays.
+await page.click('.play')
+await page.waitForFunction(() => window.__riffmaster.api().playerState === 1, null, { timeout: 8000 }).catch(() => {})
+await page.waitForTimeout(500)
+await listenButton.click()
+await page.waitForTimeout(2500)
+check('Listen pressed while the song plays starts listening', (await page.$('.listen-bar')) !== null && (await page.evaluate(() => window.__riffmaster.api().playerState === 1)))
+await page.click('.listen-bar button:has-text("Stop")')
+await page.waitForTimeout(400)
+
 // The speed changed while listening: listening ends, and the new speed stays.
 await listenButton.click()
 await page.waitForSelector('.listen-bar')
