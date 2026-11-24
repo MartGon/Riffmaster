@@ -1491,17 +1491,17 @@ input[type='range'] {
   }
 }
 
-/* Phones: the row of toggles has to fit up to ten buttons on one line. */
+/* Phones: the row of toggles has to fit up to eleven buttons on one line. */
 @media (max-width: 480px) {
   .transport .toggle {
-    padding: 6px;
+    padding: 6px 4px;
   }
 
   .transport-row .group {
-    gap: 4px;
+    gap: 3px;
   }
 
-  /* No room for dividers: the ten buttons only just fit. */
+  /* No room for dividers: the eleven buttons only just fit. */
   .toggle-group + .toggle-group {
     margin-left: 0;
     padding-left: 0;
@@ -1530,7 +1530,7 @@ input[type='range'] {
 
 @media (max-width: 380px) {
   .transport .toggle {
-    padding: 5px 4px;
+    padding: 5px 3px;
   }
 }
 
@@ -1540,7 +1540,7 @@ input[type='range'] {
   }
 
   .transport-row .group {
-    gap: 3px;
+    gap: 2px;
   }
 }
 
@@ -2242,6 +2242,23 @@ kbd {
   margin: 6px 6px 0 10px;
   font-size: 0.75rem;
   color: var(--grade-off);
+}
+
+.sidebar-pedal {
+  display: none;
+  margin: 0 6px 12px 10px;
+  font-size: 0.85rem;
+}
+
+/* Phones, upright or sideways: the foot pedal moves from the crowded controls to the sidebar. */
+@media (max-width: 480px), (max-height: 500px) {
+  .pedal-toggle {
+    display: none;
+  }
+
+  .sidebar-pedal {
+    display: inline-flex;
+  }
 }
 
 .volume-value {

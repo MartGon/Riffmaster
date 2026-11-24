@@ -259,7 +259,7 @@ export function Transport({
               disabled={!ready || practiceBusy}
               onChange={onToggleTuner}
             />
-            <button type="button" className="toggle" title="Foot pedal" disabled={!ready || practiceBusy} onClick={onPedal}>
+            <button type="button" className="toggle pedal-toggle" title="Foot pedal" disabled={!ready || practiceBusy} onClick={onPedal}>
               <Icon name="pedal" />
               <span className="toggle-label">Pedal</span>
             </button>

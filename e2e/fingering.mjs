@@ -153,7 +153,8 @@ const count = (page) => page.$$eval('.finger', (spans) => spans.length)
   await page.waitForTimeout(500)
   const fits = await page.evaluate(() => {
     const row = document.querySelector('.transport-row:last-child')
-    const buttons = [...row.querySelectorAll('.toggle')].map((b) => b.getBoundingClientRect())
+    // Buttons a phone hides are left out.
+    const buttons = [...row.querySelectorAll('.toggle')].map((b) => b.getBoundingClientRect()).filter((b) => b.width > 0)
     return {
       overflow: document.documentElement.scrollWidth > window.innerWidth,
       inside: buttons.every((b) => b.left >= 0 && b.right <= window.innerWidth),
@@ -180,7 +181,7 @@ const count = (page) => page.$$eval('.finger', (spans) => spans.length)
 {
   const context = await browser.newContext({ viewport: { width: 320, height: 640 }, isMobile: true, hasTouch: true })
   const page = await openSong(context)
-  const rows = await page.$$eval('.transport-row:last-child .toggle', (buttons) => new Set(buttons.map((b) => Math.round(b.getBoundingClientRect().top))).size)
+  const rows = await page.$$eval('.transport-row:last-child .toggle', (buttons) => new Set(buttons.map((b) => b.getBoundingClientRect()).filter((b) => b.width > 0).map((b) => Math.round(b.top))).size)
   check('at 320 px wide the buttons are on one line', rows === 1, `${rows} lines`)
   await context.close()
 }

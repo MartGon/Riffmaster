@@ -867,6 +867,13 @@ export default function App() {
             />
           )}
           {ready && (
+            // Phones have no room for it among the controls under the tab.
+            <button type="button" className="toggle sidebar-pedal" disabled={practiceBusy} onClick={() => setPedalOpen(true)}>
+              <Icon name="pedal" />
+              Foot pedal
+            </button>
+          )}
+          {ready && (
             <TrackList
               tracks={state.tracks}
               activeTrack={state.activeTrack}
